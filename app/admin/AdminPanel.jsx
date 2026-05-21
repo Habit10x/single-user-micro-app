@@ -160,8 +160,17 @@ function UsersTab() {
               {u.name[0].toUpperCase()}
             </div>
             <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 600, fontSize: 14, color: C.text }}>{u.name}</div>
-              <div style={{ fontSize: 12, color: C.muted }}>{u.email}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                <span style={{ fontWeight: 600, fontSize: 14, color: C.text }}>{u.name}</span>
+                {u.instance_name && (
+                  <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px",
+                    borderRadius: 6, background: C.crimsonPale,
+                    color: C.crimson, flexShrink: 0 }}>
+                    🔒 {u.instance_name}
+                  </span>
+                )}
+              </div>
+              <div style={{ fontSize: 12, color: C.muted }}>{u.email || "Instance user"}</div>
             </div>
             <div style={{ fontSize: 11, color: C.muted, flexShrink: 0 }}>
               {new Date(u.submitted_at).toLocaleDateString("en-IN", { day:"numeric", month:"short", year:"numeric" })}
@@ -648,6 +657,266 @@ function ExercisesTab() {
   );
 }
 
+// ─── Instances Tab ────────────────────────────────────────────────────────────
+
+function InstancesTab() {
+  const [instances, setInstances] = useState([]);
+  const [loading,   setLoading]   = useState(true);
+  const [selected,  setSelected]  = useState(null);
+  const [creating,  setCreating]  = useState(false);
+  const [newName,   setNewName]   = useState("");
+  const [saving,    setSaving]    = useState(false);
+  const [copied,    setCopied]    = useState(false);
+
+  const load = useCallback(() =>
+    fetch("/api/admin/instances").then(r => r.json()).then(d => { setInstances(d); setLoading(false); })
+  , []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const pick = async inst => {
+    const data = await fetch(`/api/admin/instances/${inst.id}`).then(r => r.json());
+    setSelected(data);
+    setCreating(false);
+  };
+
+  const create = async () => {
+    if (!newName.trim()) { alert("Instance name is required."); return; }
+    setSaving(true);
+    const inst = await fetch("/api/admin/instances", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: newName.trim() }),
+    }).then(r => r.json());
+    await load();
+    setSaving(false);
+    setCreating(false);
+    setNewName("");
+    await pick(inst);
+  };
+
+  const del = async () => {
+    if (!selected) return;
+    if (!window.confirm(`Delete instance "${selected.name}"? Users in this instance will lose their instance tag, but their submissions remain.`)) return;
+    await fetch(`/api/admin/instances/${selected.id}`, { method: "DELETE" });
+    await load();
+    setSelected(null);
+  };
+
+  const copyPin = () => {
+    navigator.clipboard.writeText(selected.pin);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div style={{ display: "flex", height: "calc(100vh - 108px)" }}>
+      {/* ── Left: list ── */}
+      <div style={{ width: 290, flexShrink: 0, borderRight: "1px solid " + C.border,
+        display: "flex", flexDirection: "column", overflowY: "auto" }}>
+        <div style={{ padding: "12px 14px", borderBottom: "1px solid " + C.border, flexShrink: 0 }}>
+          <Btn onClick={() => { setCreating(true); setSelected(null); setNewName(""); }}
+            style={{ width: "100%" }}>
+            + New Instance
+          </Btn>
+        </div>
+        {loading
+          ? <div style={{ padding: 20, color: C.muted, fontSize: 13 }}>Loading…</div>
+          : instances.length === 0
+            ? <div style={{ padding: 20, color: C.muted, fontSize: 13 }}>No instances yet.</div>
+            : instances.map(inst => (
+              <div key={inst.id} onClick={() => pick(inst)}
+                style={{ padding: "12px 14px", cursor: "pointer",
+                  background: selected?.id === inst.id ? C.crimsonPale : "transparent",
+                  borderLeft: `3px solid ${selected?.id === inst.id ? C.crimson : "transparent"}`,
+                  borderBottom: "1px solid " + C.borderLight }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontWeight: 600, fontSize: 13, color: C.text }}>{inst.name}</span>
+                  <span style={{ fontSize: 11, color: C.muted, flexShrink: 0 }}>
+                    {inst.user_count} user{inst.user_count !== 1 ? "s" : ""}
+                  </span>
+                </div>
+                <div style={{ fontSize: 11, color: C.muted, marginTop: 3 }}>PIN: ••••</div>
+              </div>
+            ))
+        }
+      </div>
+
+      {/* ── Right: detail / create ── */}
+      {creating ? (
+        <div style={{ flex: 1, overflowY: "auto", padding: "24px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between",
+            alignItems: "center", marginBottom: 20 }}>
+            <h2 style={{ fontSize: 18, fontWeight: 700, fontFamily: "Georgia,serif",
+              color: C.text, margin: 0 }}>New Instance</h2>
+            <div style={{ display: "flex", gap: 8 }}>
+              <Btn variant="ghost" onClick={() => setCreating(false)}>Cancel</Btn>
+              <Btn onClick={create} disabled={saving}>{saving ? "Creating…" : "Create"}</Btn>
+            </div>
+          </div>
+          <Field label="Instance Name" value={newName} onChange={setNewName}
+            placeholder="e.g. Team Alpha, Cohort 3…" />
+          <div style={{ background: C.amberPale, border: "1px solid #FDE68A",
+            borderRadius: 8, padding: "12px 14px", fontSize: 13,
+            color: C.amberDark, lineHeight: 1.55 }}>
+            A 4-digit PIN will be auto-generated after creation. Share it with the users who should join this instance.
+          </div>
+        </div>
+      ) : !selected ? (
+        <Empty icon="🔒" text="Select an instance or create a new one." />
+      ) : (
+        <div style={{ flex: 1, overflowY: "auto", padding: "24px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between",
+            alignItems: "flex-start", marginBottom: 20 }}>
+            <div>
+              <h2 style={{ fontSize: 20, fontWeight: 700, fontFamily: "Georgia,serif",
+                color: C.text, margin: "0 0 4px" }}>
+                {selected.name}
+              </h2>
+              <div style={{ fontSize: 12, color: C.muted }}>
+                Created {new Date(selected.created_at).toLocaleDateString("en-IN",
+                  { day: "numeric", month: "short", year: "numeric" })}
+              </div>
+            </div>
+            <Btn variant="danger" onClick={del}>Delete</Btn>
+          </div>
+
+          {/* PIN card */}
+          <div style={{ background: C.card, border: "1.5px solid " + C.crimsonBorder,
+            borderRadius: 12, padding: "16px 18px", marginBottom: 22 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: C.crimson,
+              textTransform: "uppercase", letterSpacing: 0.9, marginBottom: 10 }}>
+              Instance PIN — share with participants
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+              <div style={{ fontSize: 40, fontWeight: 800, color: C.crimson,
+                fontFamily: "Georgia,serif", letterSpacing: 10 }}>
+                {selected.pin}
+              </div>
+              <button onClick={copyPin}
+                style={{ padding: "7px 14px", borderRadius: 7,
+                  border: "1.5px solid " + C.crimsonBorder,
+                  background: copied ? C.greenPale : C.crimsonPale,
+                  color: copied ? C.green : C.crimson,
+                  fontSize: 12, fontWeight: 600,
+                  cursor: "pointer", fontFamily: "inherit" }}>
+                {copied ? "Copied!" : "Copy PIN"}
+              </button>
+            </div>
+            <div style={{ fontSize: 12, color: C.muted, marginTop: 8 }}>
+              Users enter this PIN on the login page to join this instance.
+            </div>
+          </div>
+
+          {/* Users list */}
+          <div style={{ fontSize: 14, fontWeight: 700, color: C.text, marginBottom: 12 }}>
+            Participants ({selected.users?.length || 0})
+          </div>
+
+          {!selected.users?.length ? (
+            <div style={{ fontSize: 13, color: C.muted, fontStyle: "italic" }}>
+              No submissions yet. Share the PIN to get started.
+            </div>
+          ) : (
+            selected.users.map((u, i) => (
+              <div key={i} style={{ background: C.card, border: "1px solid " + C.border,
+                borderRadius: 8, padding: "10px 14px", marginBottom: 7,
+                display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ width: 32, height: 32, borderRadius: "50%",
+                  background: C.crimsonLight, display: "flex", alignItems: "center",
+                  justifyContent: "center", fontSize: 13, fontWeight: 700,
+                  color: C.crimson, flexShrink: 0 }}>
+                  {u.name[0].toUpperCase()}
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 600, fontSize: 13, color: C.text }}>{u.name}</div>
+                  <div style={{ fontSize: 11, color: C.muted }}>
+                    Submitted {new Date(u.submitted_at).toLocaleDateString("en-IN",
+                      { day: "numeric", month: "short", year: "numeric" })}
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Settings Tab ─────────────────────────────────────────────────────────────
+
+function SettingsTab() {
+  const [loginEnabled, setLoginEnabled] = useState(null);
+  const [saving, setSaving]             = useState(false);
+
+  useEffect(() => {
+    fetch("/api/admin/settings")
+      .then(r => r.json())
+      .then(d => setLoginEnabled(d.login_enabled === "true"))
+      .catch(() => setLoginEnabled(true));
+  }, []);
+
+  const toggle = async () => {
+    setSaving(true);
+    const next = !loginEnabled;
+    await fetch("/api/admin/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: "login_enabled", value: String(next) }),
+    });
+    setLoginEnabled(next);
+    setSaving(false);
+  };
+
+  if (loginEnabled === null) return <div style={{ padding: 40, color: C.muted }}>Loading…</div>;
+
+  return (
+    <div style={{ padding: "28px 24px", maxWidth: 520 }}>
+      <h2 style={{ fontSize: 18, fontWeight: 700, fontFamily: "Georgia,serif",
+        color: C.text, margin: "0 0 6px" }}>App Settings</h2>
+      <p style={{ fontSize: 13, color: C.muted, margin: "0 0 28px" }}>
+        Manage global settings for the app.
+      </p>
+
+      <div style={{ background: C.card, border: "1px solid " + C.border,
+        borderRadius: 12, padding: "20px 22px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between",
+          alignItems: "flex-start", gap: 16 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 700, fontSize: 15, color: C.text, marginBottom: 5 }}>
+              Login
+            </div>
+            <div style={{ fontSize: 13, color: C.muted, lineHeight: 1.55 }}>
+              {loginEnabled
+                ? "Users can register with name + email and complete exercises."
+                : "Login is OFF — users can only enter their email to view existing results. No new registrations or exercise submissions."}
+            </div>
+          </div>
+          <button onClick={toggle} disabled={saving}
+            style={{ padding: "9px 22px", borderRadius: 8, border: "none",
+              background: loginEnabled ? C.green : C.red,
+              color: "#fff", fontWeight: 700, fontSize: 14,
+              cursor: saving ? "not-allowed" : "pointer",
+              opacity: saving ? 0.7 : 1, fontFamily: "inherit",
+              flexShrink: 0, minWidth: 70 }}>
+            {saving ? "…" : loginEnabled ? "ON" : "OFF"}
+          </button>
+        </div>
+
+        <div style={{ marginTop: 16, padding: "10px 14px", borderRadius: 8,
+          background: loginEnabled ? C.greenPale : C.crimsonPale,
+          border: "1px solid " + (loginEnabled ? "#A7F3D0" : C.crimsonBorder),
+          fontSize: 12, color: loginEnabled ? C.green : C.crimson, fontWeight: 600 }}>
+          {loginEnabled
+            ? "✓ Login is currently enabled — users can register and take exercises"
+            : "✕ Login is currently disabled — only existing users can view results"}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Admin Panel ─────────────────────────────────────────────────────────
 
 export default function AdminPanel() {
@@ -663,6 +932,8 @@ export default function AdminPanel() {
     { key: "users",     label: "Users",     icon: "👥" },
     { key: "exercises", label: "Exercises", icon: "📁" },
     { key: "scenarios", label: "Scenarios", icon: "📋" },
+    { key: "instances", label: "Instances", icon: "🔒" },
+    { key: "settings",  label: "Settings",  icon: "⚙️" },
   ];
 
   return (
@@ -713,6 +984,8 @@ export default function AdminPanel() {
         {tab === "users"     && <UsersTab />}
         {tab === "exercises" && <ExercisesTab />}
         {tab === "scenarios" && <ScenariosTab />}
+        {tab === "instances" && <InstancesTab />}
+        {tab === "settings"  && <SettingsTab />}
       </main>
     </div>
   );

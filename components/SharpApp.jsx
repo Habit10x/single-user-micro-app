@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const C = {
@@ -101,7 +101,7 @@ const Tag = ({icon, label, highlight}) => (
 );
 
 // ─── Shared: Top nav ──────────────────────────────────────────────────────────
-const TopNav = ({userName, onLogin, back}) => (
+const TopNav = ({userName, userEmail, onLogout, back}) => (
   <header style={{background:C.card, borderBottom:"1px solid "+C.border,
     padding:"0 20px", height:52, display:"flex", alignItems:"center",
     justifyContent:"space-between", position:"sticky", top:0, zIndex:50,
@@ -119,22 +119,27 @@ const TopNav = ({userName, onLogin, back}) => (
         </button>
       </>}
     </div>
-    {userName
-      ? <div style={{display:"flex", alignItems:"center", gap:8}}>
-          <div style={{width:30, height:30, borderRadius:"50%",
-            background:C.crimsonLight, display:"flex", alignItems:"center",
-            justifyContent:"center", fontSize:11, fontWeight:700, color:C.crimson}}>
-            {userName[0].toUpperCase()}
-          </div>
-          <span style={{fontSize:13, color:C.muted}}>{userName}</span>
+    {userName && (
+      <div style={{display:"flex", alignItems:"center", gap:8}}>
+        <div style={{width:30, height:30, borderRadius:"50%",
+          background:C.crimsonLight, display:"flex", alignItems:"center",
+          justifyContent:"center", fontSize:11, fontWeight:700, color:C.crimson,
+          flexShrink:0}}>
+          {userName[0].toUpperCase()}
         </div>
-      : <button onClick={onLogin}
+        <div>
+          <div style={{fontSize:13, fontWeight:600, color:C.text, lineHeight:1.25}}>{userName}</div>
+          {userEmail && <div style={{fontSize:11, color:C.muted, lineHeight:1.25}}>{userEmail}</div>}
+        </div>
+        <button onClick={onLogout}
           style={{background:"none", border:"1px solid "+C.border,
-            color:C.text, fontSize:13, fontWeight:600,
-            padding:"6px 14px", borderRadius:8, cursor:"pointer"}}>
-          Log in
+            color:C.muted, fontSize:12, fontWeight:600,
+            padding:"5px 10px", borderRadius:7, cursor:"pointer",
+            marginLeft:4, fontFamily:"inherit"}}>
+          Log out
         </button>
-    }
+      </div>
+    )}
   </header>
 );
 
@@ -155,6 +160,25 @@ export default function SharpApp() {
   const [userEmail,   setUserEmail]   = useState("");
   const [userAnswers, setUserAnswers] = useState(null); // answers from DB for returning users
   const [loginLoading,setLoginLoading]= useState(false);
+  const [loginEnabled,setLoginEnabled]= useState(true);
+  const [submitting,  setSubmitting]  = useState(false);
+
+  const [instanceId,        setInstanceId]        = useState(null);
+  const [instanceName,      setInstanceName]      = useState(null);
+  const [showInstanceModal, setShowInstanceModal] = useState(false);
+  const [instUserName,      setInstUserName]      = useState("");
+  const [instTeamName,      setInstTeamName]      = useState("");
+  const [instPin,           setInstPin]           = useState("");
+  const [instErr,           setInstErr]           = useState("");
+  const [instLoading,       setInstLoading]       = useState(false);
+  const [communityData,     setCommunityData]     = useState(null);
+
+  useEffect(()=>{
+    fetch("/api/settings")
+      .then(r=>r.json())
+      .then(d=>setLoginEnabled(d.login_enabled!==false))
+      .catch(()=>{});
+  },[]);
 
   const total      = SCENARIOS.length;
   const scenario   = SCENARIOS[q-1];
@@ -174,7 +198,7 @@ export default function SharpApp() {
   );
 
   const doLogin = async () => {
-    if (!nameVal.trim())         { setLoginErr("Please enter your name."); return; }
+    if (loginEnabled && !nameVal.trim()) { setLoginErr("Please enter your name."); return; }
     if (!emailVal.includes("@")) { setLoginErr("Please enter a valid email."); return; }
 
     setLoginLoading(true);
@@ -190,6 +214,8 @@ export default function SharpApp() {
         setUserEmail(emailVal.trim().toLowerCase());
         setUserAnswers(data.answers); // keyed by scenario id string e.g. {"1":"...","2":"..."}
         setScreen("results");
+      } else if (!loginEnabled) {
+        setLoginErr("No account found. New registrations are currently disabled.");
       } else {
         // New user — normal flow
         setUserName(nameVal.trim());
@@ -203,29 +229,190 @@ export default function SharpApp() {
     }
   };
 
-  const SCREENS = ["login","start","answering","results","community","feedback","insight"];
-  const DemoNav = () => (
-    <div style={{background:"#111", padding:"10px 20px",
-      display:"flex", gap:7, justifyContent:"center",
-      flexWrap:"wrap", borderBottom:"2px solid #1e1e1e"}}>
-      {SCREENS.map(s=>{
-        const blocked = userAnswers !== null && (s==="start" || s==="answering");
-        return (
-          <button key={s}
-            onClick={()=>{ if (!blocked) setScreen(s); }}
-            title={blocked?"Already submitted — view only":""}
+  const doLogout = () => {
+    setScreen("login");
+    setUserName("");
+    setUserEmail("");
+    setNameVal("");
+    setEmailVal("");
+    setUserAnswers(null);
+    setTexts({});
+    setQ(1);
+    setLoginErr("");
+    setInstanceId(null);
+    setInstanceName(null);
+    setShowInstanceModal(false);
+    setInstUserName("");
+    setInstTeamName("");
+    setInstPin("");
+    setInstErr("");
+    setCommunityData(null);
+  };
+
+  const fetchCommunityData = async (instId) => {
+    try {
+      const res  = await fetch(`/api/community?instance_id=${instId}`);
+      const data = await res.json();
+      setCommunityData(data.submissions || []);
+    } catch {}
+  };
+
+  const doJoinInstance = async () => {
+    if (!instUserName.trim()) { setInstErr("Please enter your name."); return; }
+    if (!instTeamName.trim()) { setInstErr("Please enter your team name."); return; }
+    if (!/^\d{4}$/.test(instPin)) { setInstErr("PIN must be exactly 4 digits."); return; }
+
+    setInstLoading(true);
+    setInstErr("");
+
+    try {
+      const res  = await fetch("/api/instance/join", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pin: instPin }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) { setInstErr(data.error || "Invalid PIN."); setInstLoading(false); return; }
+
+      // Check if this user name already submitted in this instance
+      const checkRes  = await fetch(
+        `/api/check-submission?instance_id=${data.id}&name=${encodeURIComponent(instUserName.trim())}`
+      );
+      const checkData = await checkRes.json();
+
+      setInstanceId(data.id);
+      setInstanceName(data.name);
+      setUserName(instUserName.trim());
+      setShowInstanceModal(false);
+
+      if (checkData.submitted) {
+        setUserAnswers(checkData.answers);
+        await fetchCommunityData(data.id);
+        setScreen("results");
+      } else {
+        setScreen("start");
+      }
+    } catch {
+      setInstErr("Could not connect. Please try again.");
+    } finally {
+      setInstLoading(false);
+    }
+  };
+
+  const DemoNav = () => {
+    const screens = ["results","community","feedback","insight"];
+    return (
+      <div style={{background:"#111", padding:"10px 20px",
+        display:"flex", gap:7, justifyContent:"center",
+        flexWrap:"wrap", borderBottom:"2px solid #1e1e1e"}}>
+        {screens.map(s=>(
+          <button key={s} onClick={()=>setScreen(s)}
             style={{padding:"5px 13px", borderRadius:20, border:"1.5px solid",
-              borderColor:screen===s?"#E8A020":blocked?"#333":"#444",
+              borderColor:screen===s?"#E8A020":"#444",
               background:screen===s?"#E8A020":"transparent",
-              color:screen===s?"#111":blocked?"#555":"#aaa",
+              color:screen===s?"#111":"#aaa",
               fontSize:10, fontWeight:700,
-              cursor:blocked?"not-allowed":"pointer",
-              textTransform:"capitalize",
-              textDecoration:blocked?"line-through":"none"}}>
+              cursor:"pointer", textTransform:"capitalize"}}>
             {s}
           </button>
-        );
-      })}
+        ))}
+      </div>
+    );
+  };
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // INSTANCE MODAL
+  // ═══════════════════════════════════════════════════════════════════════════
+  const InstanceModal = () => (
+    <div onClick={()=>{setShowInstanceModal(false);setInstErr("");}}
+      style={{position:"fixed", inset:0, background:"rgba(0,0,0,0.45)",
+        display:"flex", alignItems:"center", justifyContent:"center",
+        zIndex:300, padding:"20px"}}>
+      <div onClick={e=>e.stopPropagation()}
+        style={{background:C.card, borderRadius:16, width:"100%", maxWidth:380,
+          padding:"28px 26px", boxShadow:"0 20px 60px rgba(0,0,0,0.25)"}}>
+
+        <h2 style={{fontSize:18, fontWeight:700, color:C.text,
+          fontFamily:"Georgia,serif", margin:"0 0 6px"}}>
+          Join Parallel Instance
+        </h2>
+        <p style={{fontSize:13, color:C.muted, margin:"0 0 22px", lineHeight:1.55}}>
+          Enter your team name and the 4-digit PIN shared by your administrator.
+        </p>
+
+        <label style={{display:"block", marginBottom:16}}>
+          <div style={{fontSize:11, fontWeight:700, color:C.muted,
+            textTransform:"uppercase", letterSpacing:0.9, marginBottom:6}}>
+            Your Name
+          </div>
+          <input type="text" value={instUserName}
+            placeholder="e.g. Priya Sharma"
+            onChange={e=>{setInstUserName(e.target.value);setInstErr("");}}
+            onKeyDown={e=>e.key==="Enter"&&doJoinInstance()}
+            style={{width:"100%", padding:"11px 13px",
+              border:"1.5px solid "+C.border, borderRadius:8,
+              fontSize:14, color:C.text, background:C.card,
+              outline:"none", boxSizing:"border-box", fontFamily:"inherit"}} />
+        </label>
+
+        <label style={{display:"block", marginBottom:16}}>
+          <div style={{fontSize:11, fontWeight:700, color:C.muted,
+            textTransform:"uppercase", letterSpacing:0.9, marginBottom:6}}>
+            Team Name
+          </div>
+          <input type="text" value={instTeamName}
+            placeholder="e.g. Team Alpha"
+            onChange={e=>{setInstTeamName(e.target.value);setInstErr("");}}
+            onKeyDown={e=>e.key==="Enter"&&doJoinInstance()}
+            style={{width:"100%", padding:"11px 13px",
+              border:"1.5px solid "+C.border, borderRadius:8,
+              fontSize:14, color:C.text, background:C.card,
+              outline:"none", boxSizing:"border-box", fontFamily:"inherit"}} />
+        </label>
+
+        <label style={{display:"block", marginBottom:22}}>
+          <div style={{fontSize:11, fontWeight:700, color:C.muted,
+            textTransform:"uppercase", letterSpacing:0.9, marginBottom:6}}>
+            4-Digit PIN
+          </div>
+          <input type="text" inputMode="numeric" maxLength={4}
+            value={instPin} placeholder="••••"
+            onChange={e=>{setInstPin(e.target.value.replace(/\D/g,"").slice(0,4));setInstErr("");}}
+            onKeyDown={e=>e.key==="Enter"&&doJoinInstance()}
+            style={{width:"100%", padding:"11px 13px",
+              border:"1.5px solid "+C.border, borderRadius:8,
+              fontSize:22, fontWeight:700, color:C.text,
+              background:C.card, outline:"none",
+              boxSizing:"border-box", fontFamily:"inherit",
+              letterSpacing:8, textAlign:"center"}} />
+        </label>
+
+        {instErr && (
+          <div style={{background:C.crimsonPale, border:"1px solid "+C.crimsonBorder,
+            borderRadius:8, padding:"9px 13px", marginBottom:16,
+            fontSize:13, color:C.crimson}}>
+            {instErr}
+          </div>
+        )}
+
+        <button onClick={doJoinInstance} disabled={instLoading}
+          style={{width:"100%", padding:"13px", background:C.crimson,
+            color:"#fff", border:"none", borderRadius:8,
+            fontSize:14, fontWeight:700,
+            cursor:instLoading?"not-allowed":"pointer",
+            opacity:instLoading?0.7:1, fontFamily:"inherit", marginBottom:8}}>
+          {instLoading ? "Verifying…" : "Join Instance →"}
+        </button>
+
+        <button onClick={()=>{setShowInstanceModal(false);setInstErr("");}}
+          style={{width:"100%", padding:"10px", background:"transparent",
+            border:"1.5px solid "+C.border, borderRadius:8,
+            fontSize:13, fontWeight:600, color:C.muted,
+            cursor:"pointer", fontFamily:"inherit"}}>
+          Cancel
+        </button>
+      </div>
     </div>
   );
 
@@ -233,14 +420,18 @@ export default function SharpApp() {
   // 1. LOGIN SCREEN
   // ═══════════════════════════════════════════════════════════════════════════
   const LoginScreen = () => (
-    <div style={{minHeight:"calc(100vh - 38px)", background:C.bg,
-      display:"flex", flexDirection:"column",
-      alignItems:"center", justifyContent:"center", padding:"24px 20px"}}>
+    <div style={{minHeight:"100vh", background:C.bg,
+      display:"flex", flexDirection:"column"}}>
 
-      <div style={{textAlign:"center", marginBottom:36}}>
-        <div style={{fontSize:38, fontWeight:800, color:C.crimson,
-          fontFamily:"Georgia,serif", letterSpacing:1, marginBottom:5}}>SHARP</div>
-        <div style={{fontSize:14, color:C.muted}}>Communication Skills Practice</div>
+      {showInstanceModal && InstanceModal()}
+
+      <TopNav userName={userName} userEmail={userEmail} onLogout={doLogout} />
+
+      <div style={{flex:1, display:"flex", flexDirection:"column",
+        alignItems:"center", justifyContent:"center", padding:"24px 20px"}}>
+
+      <div style={{textAlign:"center", marginBottom:28}}>
+        <div style={{fontSize:13, color:C.muted}}>Communication Skills Practice</div>
       </div>
 
       <div style={{background:C.card, borderRadius:16, padding:"32px 28px",
@@ -249,22 +440,34 @@ export default function SharpApp() {
         <h2 style={{fontSize:22, fontWeight:700, color:C.text,
           fontFamily:"Georgia,serif", margin:"0 0 6px"}}>Welcome</h2>
         <p style={{fontSize:14, color:C.muted, margin:"0 0 26px", lineHeight:1.6}}>
-          Enter your details to begin your session.
+          {loginEnabled
+            ? "Enter your details to begin your session."
+            : "Enter your email to view your results."}
         </p>
 
-        <label style={{display:"block", marginBottom:16}}>
-          <div style={{fontSize:11, fontWeight:700, color:C.muted,
-            textTransform:"uppercase", letterSpacing:0.9, marginBottom:6}}>
-            Full Name
+        {!loginEnabled && (
+          <div style={{background:C.amberPale, border:"1px solid #FDE68A",
+            borderRadius:8, padding:"9px 13px", marginBottom:20,
+            fontSize:12, color:C.amberDark, lineHeight:1.55}}>
+            New registrations are currently disabled. Only existing users can view their results.
           </div>
-          <input type="text" value={nameVal} placeholder="Priya Sharma"
-            onChange={e=>{setNameVal(e.target.value);setLoginErr("");}}
-            onKeyDown={e=>e.key==="Enter"&&doLogin()}
-            style={{width:"100%", padding:"11px 13px",
-              border:"1.5px solid "+C.border, borderRadius:8,
-              fontSize:14, color:C.text, background:C.card,
-              outline:"none", boxSizing:"border-box", fontFamily:"inherit"}} />
-        </label>
+        )}
+
+        {loginEnabled && (
+          <label style={{display:"block", marginBottom:16}}>
+            <div style={{fontSize:11, fontWeight:700, color:C.muted,
+              textTransform:"uppercase", letterSpacing:0.9, marginBottom:6}}>
+              Full Name
+            </div>
+            <input type="text" value={nameVal} placeholder="Priya Sharma"
+              onChange={e=>{setNameVal(e.target.value);setLoginErr("");}}
+              onKeyDown={e=>e.key==="Enter"&&doLogin()}
+              style={{width:"100%", padding:"11px 13px",
+                border:"1.5px solid "+C.border, borderRadius:8,
+                fontSize:14, color:C.text, background:C.card,
+                outline:"none", boxSizing:"border-box", fontFamily:"inherit"}} />
+          </label>
+        )}
 
         <label style={{display:"block", marginBottom:22}}>
           <div style={{fontSize:11, fontWeight:700, color:C.muted,
@@ -292,13 +495,27 @@ export default function SharpApp() {
             fontSize:14, fontWeight:700,
             cursor:loginLoading?"not-allowed":"pointer",
             opacity:loginLoading?0.7:1, fontFamily:"inherit"}}>
-          {loginLoading?"Checking…":"Continue →"}
+          {loginLoading ? "Checking…" : loginEnabled ? "Continue →" : "View Results →"}
         </button>
 
-        <p style={{textAlign:"center", fontSize:12, color:C.muted,
-          marginTop:18, lineHeight:1.6}}>
-          Your answers are saved so you can review them after the session.
-        </p>
+        {loginEnabled && (
+          <p style={{textAlign:"center", fontSize:12, color:C.muted,
+            marginTop:18, lineHeight:1.6}}>
+            Your answers are saved so you can review them after the session.
+          </p>
+        )}
+
+        <div style={{marginTop:20, paddingTop:18,
+          borderTop:"1px solid "+C.borderLight, textAlign:"center"}}>
+          <button onClick={()=>setShowInstanceModal(true)}
+            style={{background:"transparent", border:"1.5px solid "+C.border,
+              borderRadius:8, padding:"9px 18px", fontSize:13, fontWeight:600,
+              color:C.textSoft, cursor:"pointer", fontFamily:"inherit",
+              width:"100%"}}>
+            🔒 Joining as a team? Enter PIN →
+          </button>
+        </div>
+      </div>
       </div>
     </div>
   );
@@ -307,8 +524,8 @@ export default function SharpApp() {
   // 2. EXERCISE START PAGE
   // ═══════════════════════════════════════════════════════════════════════════
   const StartScreen = () => (
-    <div style={{minHeight:"calc(100vh - 38px)", background:C.bg}}>
-      <TopNav userName={userName} onLogin={()=>setScreen("login")} />
+    <div style={{minHeight:"100vh", background:C.bg}}>
+      <TopNav userName={userName} userEmail={userEmail} onLogout={doLogout} />
 
       <div style={{maxWidth:700, margin:"0 auto", padding:"0 20px 48px"}}>
         <div style={{width:"100%", aspectRatio:"16/6", background:"#E8D5D5",
@@ -381,9 +598,9 @@ export default function SharpApp() {
   // 3. ANSWERING SCREEN
   // ═══════════════════════════════════════════════════════════════════════════
   const AnsweringScreen = () => (
-    <div style={{minHeight:"calc(100vh - 38px)", background:C.bg,
+    <div style={{minHeight:"100vh", background:C.bg,
       display:"flex", flexDirection:"column"}}>
-      <TopNav userName={userName} onLogin={()=>setScreen("login")} />
+      <TopNav userName={userName} userEmail={userEmail} onLogout={doLogout} />
 
       <div style={{background:C.card, borderBottom:"1px solid "+C.border,
         padding:"10px 20px", flexShrink:0}}>
@@ -482,15 +699,22 @@ export default function SharpApp() {
           <button
             onClick={async()=>{
               if (q < total) { setQ(q+1); return; }
-              // Final submit — save to DB then show results
+              setSubmitting(true);
               try {
                 await fetch("/api/submit", {
                   method:"POST",
                   headers:{"Content-Type":"application/json"},
-                  body: JSON.stringify({ email: userEmail, name: userName, answers: texts }),
+                  body: JSON.stringify({
+                    email:       instanceId ? null : userEmail,
+                    name:        userName,
+                    answers:     texts,
+                    instance_id: instanceId || null,
+                  }),
                 });
                 setUserAnswers(texts);
+                if (instanceId) await fetchCommunityData(instanceId);
               } catch { /* non-fatal — still show results */ }
+              setSubmitting(false);
               setScreen("results");
             }}
             style={{padding:"10px 20px", borderRadius:8, border:"none",
@@ -504,11 +728,75 @@ export default function SharpApp() {
   );
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // 4. RESULTS SCREEN
+  // 4. SUBMITTING / LOADING SCREEN
+  // ═══════════════════════════════════════════════════════════════════════════
+  const SubmittingScreen = () => (
+    <div style={{minHeight:"100vh", background:C.bg, display:"flex",
+      flexDirection:"column", alignItems:"center", justifyContent:"center",
+      padding:20, fontFamily:"inherit"}}>
+
+      <style>{`
+        @keyframes sharp-spin {
+          to { transform: rotate(360deg); }
+        }
+        @keyframes sharp-pulse {
+          0%,100% { opacity:0.4; transform:scale(0.98); }
+          50%      { opacity:1;   transform:scale(1);    }
+        }
+        @keyframes sharp-bar {
+          from { width: 0%; }
+          to   { width: 100%; }
+        }
+        @keyframes sharp-fade-up {
+          from { opacity:0; transform:translateY(10px); }
+          to   { opacity:1; transform:translateY(0);    }
+        }
+      `}</style>
+
+      {/* Logo */}
+      <div style={{textAlign:"center", marginBottom:44,
+        animation:"sharp-fade-up 0.5s ease both"}}>
+        <div style={{fontSize:36, fontWeight:800, color:C.crimson,
+          fontFamily:"Georgia,serif", letterSpacing:1, marginBottom:4}}>SHARP</div>
+        <div style={{fontSize:13, color:C.muted}}>Communication Skills Practice</div>
+      </div>
+
+      {/* Spinner */}
+      <div style={{width:54, height:54, borderRadius:"50%",
+        border:"3.5px solid "+C.crimsonLight,
+        borderTopColor:C.crimson,
+        animation:"sharp-spin 0.85s linear infinite",
+        marginBottom:36}} />
+
+      {/* Labels */}
+      <div style={{textAlign:"center",
+        animation:"sharp-fade-up 0.5s 0.15s ease both"}}>
+        <div style={{fontSize:18, fontWeight:700, color:C.text,
+          fontFamily:"Georgia,serif", marginBottom:10}}>
+          Analysing your responses…
+        </div>
+        <div style={{fontSize:13, color:C.muted,
+          animation:"sharp-pulse 1.6s ease-in-out infinite"}}>
+          Scoring each scenario · Preparing your feedback
+        </div>
+      </div>
+
+      {/* Progress bar */}
+      <div style={{width:220, height:3, background:C.borderLight,
+        borderRadius:99, marginTop:40, overflow:"hidden",
+        animation:"sharp-fade-up 0.5s 0.2s ease both"}}>
+        <div style={{height:"100%", background:C.crimson,
+          borderRadius:99, animation:"sharp-bar 2.8s cubic-bezier(0.4,0,0.2,1) forwards"}} />
+      </div>
+    </div>
+  );
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 5. RESULTS SCREEN
   // ═══════════════════════════════════════════════════════════════════════════
   const ResultsScreen = () => (
     <div style={{minHeight:"calc(100vh - 38px)", background:C.bg}}>
-      <TopNav userName={userName} onLogin={()=>setScreen("login")} />
+      <TopNav userName={userName} userEmail={userEmail} onLogout={doLogout} />
 
       <div style={{maxWidth:640, margin:"0 auto", padding:"28px 20px 48px"}}>
         <div style={{textAlign:"center", marginBottom:28}}>
@@ -681,16 +969,35 @@ export default function SharpApp() {
   // ═══════════════════════════════════════════════════════════════════════════
   // 6. COMMUNITY SCREEN
   // ═══════════════════════════════════════════════════════════════════════════
-  const CommunityScreen = () => (
+  const CommunityScreen = () => {
+    // Instance users: real DB answers filtered to their instance
+    const instOthers = communityData
+      ? communityData
+          .filter(sub => sub.answers && (sub.answers[commSc] || sub.answers[String(commSc)]))
+          .filter(sub => sub.name.toLowerCase() !== userName.toLowerCase())
+      : null;
+
+    return (
     <div style={{minHeight:"calc(100vh - 38px)", background:C.bg}}>
-      <TopNav userName={userName} onLogin={()=>setScreen("login")}
+      <TopNav userName={userName} userEmail={userEmail} onLogout={doLogout}
         back={{label:"Results", onClick:()=>setScreen("results")}} />
 
       <div style={{maxWidth:680, margin:"0 auto", padding:"22px 20px 48px"}}>
-        <h2 style={{fontSize:22, fontWeight:700, color:C.text,
-          fontFamily:"Georgia,serif", margin:"0 0 16px"}}>
-          Community Responses
-        </h2>
+        <div style={{display:"flex", alignItems:"center", justifyContent:"space-between",
+          flexWrap:"wrap", gap:10, marginBottom:16}}>
+          <h2 style={{fontSize:22, fontWeight:700, color:C.text,
+            fontFamily:"Georgia,serif", margin:0}}>
+            Community Responses
+          </h2>
+          {instanceName && (
+            <div style={{display:"inline-flex", alignItems:"center", gap:5,
+              background:C.crimsonPale, border:"1px solid "+C.crimsonBorder,
+              borderRadius:8, padding:"5px 11px",
+              fontSize:11, fontWeight:700, color:C.crimson}}>
+              🔒 Instance: {instanceName}
+            </div>
+          )}
+        </div>
 
         <div style={{display:"flex", gap:6, overflowX:"auto",
           marginBottom:22, paddingBottom:3}}>
@@ -780,61 +1087,93 @@ export default function SharpApp() {
         <div style={{display:"flex", justifyContent:"space-between",
           alignItems:"center", marginBottom:12}}>
           <span style={{fontSize:12, color:C.muted}}>
-            {othersForSc.length} other responses
+            {(instOthers !== null ? instOthers : othersForSc).length} other responses
           </span>
-          <div style={{display:"flex", gap:6}}>
-            {["best","latest"].map(opt=>(
-              <button key={opt} onClick={()=>setSortBy(opt)}
-                style={{padding:"4px 11px", borderRadius:20,
-                  border:"1px solid "+C.border,
-                  background:sortBy===opt?C.crimson:C.card,
-                  color:sortBy===opt?"#fff":C.muted,
-                  fontSize:11, fontWeight:600, cursor:"pointer"}}>
-                {opt==="best"?"Best Rated":"Latest"}
-              </button>
-            ))}
-          </div>
+          {instOthers === null && (
+            <div style={{display:"flex", gap:6}}>
+              {["best","latest"].map(opt=>(
+                <button key={opt} onClick={()=>setSortBy(opt)}
+                  style={{padding:"4px 11px", borderRadius:20,
+                    border:"1px solid "+C.border,
+                    background:sortBy===opt?C.crimson:C.card,
+                    color:sortBy===opt?"#fff":C.muted,
+                    fontSize:11, fontWeight:600, cursor:"pointer"}}>
+                  {opt==="best"?"Best Rated":"Latest"}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
-        {othersSorted.map(ans=>(
-          <div key={ans.id} style={{background:C.card, borderRadius:12,
-            padding:"14px 16px", marginBottom:9, border:"1px solid "+C.border}}>
-            <div style={{display:"flex", alignItems:"flex-start",
-              gap:9, marginBottom:9}}>
-              <div style={{width:30, height:30, borderRadius:"50%",
-                background:"#EDE8E3", display:"flex", alignItems:"center",
-                justifyContent:"center", fontSize:10, fontWeight:700,
-                color:C.muted, flexShrink:0}}>
-                {ans.init}
-              </div>
-              <div style={{flex:1}}>
+        {instOthers !== null ? (
+          instOthers.length === 0 ? (
+            <div style={{textAlign:"center", padding:"32px 0",
+              fontSize:13, color:C.muted, fontStyle:"italic"}}>
+              No other responses in your instance yet.
+            </div>
+          ) : instOthers.map((sub, i) => (
+            <div key={i} style={{background:C.card, borderRadius:12,
+              padding:"14px 16px", marginBottom:9, border:"1px solid "+C.border}}>
+              <div style={{display:"flex", alignItems:"center",
+                gap:9, marginBottom:9}}>
+                <div style={{width:30, height:30, borderRadius:"50%",
+                  background:"#EDE8E3", display:"flex", alignItems:"center",
+                  justifyContent:"center", fontSize:10, fontWeight:700,
+                  color:C.muted, flexShrink:0}}>
+                  {sub.name[0].toUpperCase()}
+                </div>
                 <span style={{fontSize:13, fontWeight:600, color:C.text}}>
-                  {ans.name}
+                  {sub.name}
                 </span>
               </div>
-              <span style={{background:scoreBg(ans.score), color:scoreClr(ans.score),
-                fontWeight:700, fontSize:12, padding:"3px 10px",
-                borderRadius:20, flexShrink:0}}>
-                {ans.score}/10
-              </span>
+              <p style={{fontSize:13, color:C.text, lineHeight:1.65,
+                margin:"0 0 0 39px"}}>
+                {sub.answers[commSc] || sub.answers[String(commSc)]}
+              </p>
             </div>
-            <p style={{fontSize:13, color:C.text, lineHeight:1.65,
-              margin:"0 0 11px 39px"}}>
-              {ans.answer}
-            </p>
-            <div style={{display:"flex", justifyContent:"flex-end"}}>
-              <button onClick={()=>{setInsightOpen(ans.id);setScreen("insight");}}
-                style={{background:"none", border:"1px solid "+C.border,
-                  color:C.text, fontSize:12, fontWeight:500,
-                  padding:"5px 13px", borderRadius:8, cursor:"pointer"}}>
-                View Insight →
-              </button>
+          ))
+        ) : (
+          othersSorted.map(ans=>(
+            <div key={ans.id} style={{background:C.card, borderRadius:12,
+              padding:"14px 16px", marginBottom:9, border:"1px solid "+C.border}}>
+              <div style={{display:"flex", alignItems:"flex-start",
+                gap:9, marginBottom:9}}>
+                <div style={{width:30, height:30, borderRadius:"50%",
+                  background:"#EDE8E3", display:"flex", alignItems:"center",
+                  justifyContent:"center", fontSize:10, fontWeight:700,
+                  color:C.muted, flexShrink:0}}>
+                  {ans.init}
+                </div>
+                <div style={{flex:1}}>
+                  <span style={{fontSize:13, fontWeight:600, color:C.text}}>
+                    {ans.name}
+                  </span>
+                </div>
+                <span style={{background:scoreBg(ans.score), color:scoreClr(ans.score),
+                  fontWeight:700, fontSize:12, padding:"3px 10px",
+                  borderRadius:20, flexShrink:0}}>
+                  {ans.score}/10
+                </span>
+              </div>
+              <p style={{fontSize:13, color:C.text, lineHeight:1.65,
+                margin:"0 0 11px 39px"}}>
+                {ans.answer}
+              </p>
+              <div style={{display:"flex", justifyContent:"flex-end"}}>
+                <button onClick={()=>{setInsightOpen(ans.id);setScreen("insight");}}
+                  style={{background:"none", border:"1px solid "+C.border,
+                    color:C.text, fontSize:12, fontWeight:500,
+                    padding:"5px 13px", borderRadius:8, cursor:"pointer"}}>
+                  View Insight →
+                </button>
+              </div>
             </div>
-          </div>
-        ))}
+          ))
+        )}
       </div>
     </div>
-  );
+    );
+  };
 
   // ═══════════════════════════════════════════════════════════════════════════
   // 7. INSIGHT MODAL
@@ -926,15 +1265,20 @@ export default function SharpApp() {
 
   return (
     <div style={{fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif"}}>
-      {DemoNav()}
+      {userName && !submitting && hasSubmitted && DemoNav()}
 
-      {screen==="login"     && LoginScreen()}
-      {screen==="start"     && (hasSubmitted ? ResultsScreen() : StartScreen())}
-      {screen==="answering" && (hasSubmitted ? ResultsScreen() : AnsweringScreen())}
-      {screen==="results"   && ResultsScreen()}
-      {screen==="feedback"  && <>{ResultsScreen()}{FeedbackModal()}</>}
-      {screen==="community" && CommunityScreen()}
-      {screen==="insight"   && <>{CommunityScreen()}{InsightModal()}</>}
+      {submitting
+        ? SubmittingScreen()
+        : <>
+            {screen==="login"     && LoginScreen()}
+            {screen==="start"     && (hasSubmitted ? ResultsScreen() : StartScreen())}
+            {screen==="answering" && (hasSubmitted ? ResultsScreen() : AnsweringScreen())}
+            {screen==="results"   && (hasSubmitted ? ResultsScreen()  : StartScreen())}
+            {screen==="feedback"  && (hasSubmitted ? <>{ResultsScreen()}{FeedbackModal()}</> : StartScreen())}
+            {screen==="community" && (hasSubmitted ? CommunityScreen() : StartScreen())}
+            {screen==="insight"   && (hasSubmitted ? <>{CommunityScreen()}{InsightModal()}</> : StartScreen())}
+          </>
+      }
     </div>
   );
 }
