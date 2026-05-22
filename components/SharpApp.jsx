@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import ModeratorPanel from "./ModeratorPanel";
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const C = {
@@ -163,6 +164,8 @@ export default function SharpApp() {
   const [loginEnabled,setLoginEnabled]= useState(true);
   const [submitting,  setSubmitting]  = useState(false);
 
+  const [isModerator,       setIsModerator]       = useState(false);
+
   const [instanceId,        setInstanceId]        = useState(null);
   const [instanceName,      setInstanceName]      = useState(null);
   const [showInstanceModal, setShowInstanceModal] = useState(false);
@@ -198,6 +201,10 @@ export default function SharpApp() {
   );
 
   const doLogin = async () => {
+    if (emailVal.trim().toLowerCase() === "moderator-habit10x@gmail.com") {
+      setIsModerator(true);
+      return;
+    }
     if (loginEnabled && !nameVal.trim()) { setLoginErr("Please enter your name."); return; }
     if (!emailVal.includes("@")) { setLoginErr("Please enter a valid email."); return; }
 
@@ -1262,6 +1269,17 @@ export default function SharpApp() {
   // ─── Render ───────────────────────────────────────────────────────────────
   // userAnswers is non-null as soon as the user has submitted (either just now or from DB)
   const hasSubmitted = userAnswers !== null;
+
+  if (isModerator) {
+    return (
+      <ModeratorPanel onLogout={() => {
+        setIsModerator(false);
+        setEmailVal("");
+        setNameVal("");
+        setLoginErr("");
+      }} />
+    );
+  }
 
   return (
     <div style={{fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif"}}>
