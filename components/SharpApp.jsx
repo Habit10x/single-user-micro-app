@@ -637,73 +637,139 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
     <div style={{minHeight:"100vh", background:C.bg}}>
       <TopNav userName={userName} userEmail={userEmail} onLogout={doLogout} />
 
-      <div style={{maxWidth:700, margin:"0 auto", padding:"0 20px 48px"}}>
-        <div style={{width:"100%", aspectRatio:"16/6", background:"#E8D5D5",
-          borderRadius:16, margin:"28px 0 26px", overflow:"hidden",
-          display:"flex", alignItems:"center", justifyContent:"center",
-          position:"relative"}}>
-          <div style={{fontSize:72, opacity:0.35}}>🎯</div>
-          <div style={{position:"absolute", inset:0,
-            background:"linear-gradient(to bottom,transparent 55%,rgba(250,250,248,0.5))"}}/>
-        </div>
+      <div style={{maxWidth:520, margin:"0 auto", padding:"20px 16px 48px"}}>
 
-        <div style={{marginBottom:10}}>
-          <Tag label="PRACTICE EXERCISE" />
-        </div>
-
-        <h1 style={{fontSize:36, fontWeight:800, color:C.crimson,
-          fontFamily:"Georgia,serif", margin:"0 0 12px", lineHeight:1.15}}>
-          {activeExercise.title}
-        </h1>
-        {activeExercise.description && (
-          <p style={{fontSize:15, color:C.textSoft, margin:"0 0 20px", lineHeight:1.65}}>
-            {activeExercise.description}
-          </p>
-        )}
-
-        <div style={{display:"flex", flexWrap:"wrap", gap:8, marginBottom:26}}>
-          <Tag icon="📊" label={activeExercise.difficulty || "Intermediate"} />
-          <Tag icon="🎙" label={activeExercise.category || "Articulation"} />
-          <Tag icon="📋" label={`${total} Scenarios`} />
-          {activeExercise.timer_minutes > 0 && (
-            <Tag icon="⏱" label={`${activeExercise.timer_minutes} Minute Timer`} highlight />
-          )}
-        </div>
-
-        <hr style={{border:"none", borderTop:"1px solid "+C.border, margin:"0 0 28px"}} />
-
-        <h2 style={{fontSize:24, fontWeight:700, color:C.text,
-          fontFamily:"Georgia,serif", margin:"0 0 20px"}}>
-          Guidelines
-        </h2>
-        {[
-          "Read the scenarios carefully.",
-          "Answer in detail.",
-          "Try to be natural.",
-          "Scores and feedback unlock after all scenarios are submitted.",
-        ].map((g,i)=>(
-          <div key={i} style={{display:"flex", gap:14, marginBottom:14,
-            alignItems:"flex-start"}}>
-            <div style={{width:26, height:26, borderRadius:"50%", flexShrink:0,
-              background:C.crimsonLight, display:"flex", alignItems:"center",
-              justifyContent:"center", fontSize:12, fontWeight:700,
-              color:C.crimson, marginTop:1}}>
-              {i+1}
-            </div>
-            <span style={{fontSize:15, color:C.text, lineHeight:1.6, paddingTop:2}}>{g}</span>
+        {/* ── Hero card ── */}
+        <div style={{
+          background:C.crimsonDark, borderRadius:20,
+          padding:"28px 24px 24px", marginBottom:14,
+        }}>
+          <div style={{
+            fontSize:11, fontWeight:700, color:"#D4908A",
+            letterSpacing:2.5, textTransform:"uppercase", marginBottom:10,
+          }}>
+            {(activeExercise.category || "Clear Articulation").toUpperCase()}
           </div>
-        ))}
-
-        <hr style={{border:"none", borderTop:"1px solid "+C.border, margin:"28px 0"}} />
-
-        <div style={{textAlign:"center"}}>
-          <button onClick={()=>setScreen("answering")}
-            style={{background:C.crimson, color:"#fff", border:"none",
-              borderRadius:10, padding:"14px 44px", fontSize:15, fontWeight:700,
-              cursor:"pointer", fontFamily:"inherit", letterSpacing:0.3}}>
-            Start Exercise →
-          </button>
+          <h1 style={{
+            fontSize:36, fontWeight:800, color:"#fff",
+            fontFamily:"Georgia,serif", margin:"0 0 14px", lineHeight:1.1,
+          }}>
+            {activeExercise.title}
+          </h1>
+          {activeExercise.description && (
+            <p style={{
+              fontSize:14, color:"rgba(255,255,255,0.82)",
+              margin:"0 0 22px", lineHeight:1.7,
+            }}>
+              {activeExercise.description}
+            </p>
+          )}
+          {/* Stats pill */}
+          <div style={{
+            display:"inline-flex", alignItems:"center",
+            background:"rgba(0,0,0,0.28)", borderRadius:99,
+            padding:"11px 20px",
+          }}>
+            {[
+              {icon:"👥", label:`${total} Scenario${total!==1?"s":""}`},
+              {icon:"⏱", label:activeExercise.timer_minutes > 0 ? `${activeExercise.timer_minutes} min` : "No limit"},
+              {icon:"👤", label:"Solo"},
+            ].map((item,i)=>(
+              <div key={i} style={{display:"flex", alignItems:"center"}}>
+                {i>0 && <span style={{color:"rgba(255,255,255,0.25)", margin:"0 14px", fontSize:16}}>|</span>}
+                <span style={{color:"#fff", fontSize:13, fontWeight:600, display:"flex", alignItems:"center", gap:5}}>
+                  {item.icon} {item.label}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
+
+        {/* ── Info card ── */}
+        <div style={{
+          background:C.card, borderRadius:16,
+          border:"1px solid "+C.border,
+          padding:"22px 20px", marginBottom:12,
+          boxShadow:"0 2px 10px rgba(0,0,0,0.05)",
+        }}>
+          {/* The Task */}
+          <div style={{display:"flex", alignItems:"center", gap:12, marginBottom:14}}>
+            <div style={{
+              width:44, height:44, borderRadius:"50%",
+              background:C.crimsonPale, display:"flex",
+              alignItems:"center", justifyContent:"center",
+              fontSize:20, flexShrink:0,
+            }}>🎯</div>
+            <span style={{fontSize:12, fontWeight:800, color:C.crimson, letterSpacing:1.8, textTransform:"uppercase"}}>
+              The Task
+            </span>
+          </div>
+          <p style={{fontSize:14, color:C.text, lineHeight:1.8, margin:"0 0 22px"}}>
+            You'll be shown a situation and the context around it. Read the situation carefully,
+            then write the clearest response you can — one that communicates the core point
+            directly and specifically.
+          </p>
+
+          <hr style={{border:"none", borderTop:"1px solid "+C.border, margin:"0 0 22px"}} />
+
+          {/* Instructions */}
+          <div style={{display:"flex", alignItems:"center", gap:12, marginBottom:14}}>
+            <div style={{
+              width:44, height:44, borderRadius:"50%",
+              background:C.crimsonPale, display:"flex",
+              alignItems:"center", justifyContent:"center",
+              fontSize:20, flexShrink:0,
+            }}>📋</div>
+            <span style={{fontSize:12, fontWeight:800, color:C.crimson, letterSpacing:1.8, textTransform:"uppercase"}}>
+              Instructions
+            </span>
+          </div>
+          <ul style={{margin:0, padding:0, listStyle:"none"}}>
+            {[
+              "All context is provided. Do not make assumptions beyond what's given.",
+              ...(activeExercise.timer_minutes > 0
+                ? ["Timed activity — responses auto-submit when the timer ends."]
+                : []),
+              "Scores and feedback unlock after all scenarios are submitted.",
+            ].map((item,i,arr)=>(
+              <li key={i} style={{
+                display:"flex", alignItems:"flex-start", gap:10,
+                marginBottom:i < arr.length-1 ? 12 : 0,
+                fontSize:14, color:C.text, lineHeight:1.65,
+              }}>
+                <span style={{
+                  width:7, height:7, borderRadius:"50%", background:C.text,
+                  flexShrink:0, marginTop:6,
+                }}/>
+                {item}
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        {/* ── Lock notice ── */}
+        <div style={{
+          display:"flex", alignItems:"center", gap:13,
+          background:C.crimsonPale, border:"1px solid "+C.crimsonBorder,
+          borderRadius:12, padding:"14px 18px", marginBottom:24,
+        }}>
+          <span style={{fontSize:22, flexShrink:0}}>🔒</span>
+          <p style={{fontSize:13, color:C.textSoft, margin:0, lineHeight:1.6}}>
+            <strong style={{color:C.crimson}}>Scores and community responses</strong>{" "}
+            unlock after exercise submission.
+          </p>
+        </div>
+
+        {/* ── Start button ── */}
+        <button onClick={()=>setScreen("answering")}
+          style={{
+            width:"100%", padding:"15px",
+            background:C.crimson, color:"#fff", border:"none",
+            borderRadius:12, fontSize:15, fontWeight:700,
+            cursor:"pointer", fontFamily:"inherit", letterSpacing:0.3,
+          }}>
+          Start Exercise →
+        </button>
       </div>
     </div>
   );
