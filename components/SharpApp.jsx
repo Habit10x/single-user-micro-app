@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import ModeratorPanel from "./ModeratorPanel";
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
@@ -180,6 +180,10 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
   const [loginEnabled,setLoginEnabled]= useState(true);
   const [submitting,  setSubmitting]  = useState(false);
   const [sharpResults,setSharpResults]= useState({});
+  const [timeLeft,    setTimeLeft]    = useState(null);
+
+  const textsRef    = useRef({});
+  const doSubmitRef = useRef(null);
 
   const [isModerator,       setIsModerator]       = useState(false);
 
@@ -199,6 +203,8 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
       .then(d=>setLoginEnabled(d.login_enabled!==false))
       .catch(()=>{});
   },[]);
+
+  useEffect(()=>{ textsRef.current = texts; },[texts]);
 
   // Active exercise / scenario data — from DB props or hardcoded defaults
   const activeScenarios = (scenariosProp && scenariosProp.length > 0)
@@ -275,6 +281,61 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
     }
   };
 
+  const formatTime = secs => `${Math.floor(secs/60)}:${String(secs%60).padStart(2,"0")}`;
+
+  const doSubmit = async () => {
+    if (submitting) return;
+    const answers = textsRef.current;
+    setSubmitting(true);
+    try {
+      await fetch("/api/submit", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({
+          email:       instanceId ? null : userEmail,
+          name:        userName,
+          answers,
+          instance_id: instanceId || null,
+          exercise_id: activeExercise.id || null,
+        }),
+      });
+      setUserAnswers(answers);
+      if (instanceId) await fetchCommunityData(instanceId);
+      const scoreRes = await fetch("/api/score-all", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({
+          answers,
+          email:         instanceId ? null : userEmail,
+          name:          userName,
+          instance_id:   instanceId || null,
+          exercise_id:   activeExercise.id || null,
+          exerciseTitle: activeExercise.title,
+          scenarios:     activeScenarios.map(s=>({shortTitle:s.short,text:s.text,ctx:s.ctx})),
+        }),
+      });
+      const scoreData = await scoreRes.json();
+      if (scoreData.sharpResults) setSharpResults(scoreData.sharpResults);
+    } catch {}
+    setSubmitting(false);
+    setScreen("results");
+  };
+  doSubmitRef.current = doSubmit;
+
+  // Timer: start when entering answering screen
+  useEffect(()=>{
+    if (screen==="answering" && activeExercise.timer_minutes > 0)
+      setTimeLeft(t => t === null ? activeExercise.timer_minutes * 60 : t);
+    if (screen!=="answering" && screen!=="results")
+      {} // keep timeLeft while on results so it doesn't restart if they go back (not possible but safe)
+  },[screen]);
+
+  // Timer: countdown tick + auto-submit at 0
+  useEffect(()=>{
+    if (timeLeft === null || screen !== "answering") return;
+    if (timeLeft <= 0) { doSubmitRef.current?.(); return; }
+    const t = setTimeout(()=>setTimeLeft(s=>s-1), 1000);
+    return ()=>clearTimeout(t);
+  },[timeLeft, screen]);
+
   const doLogout = () => {
     setScreen("login");
     setUserName("");
@@ -294,6 +355,7 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
     setInstErr("");
     setCommunityData(null);
     setSharpResults({});
+    setTimeLeft(null);
   };
 
   const fetchCommunityData = async (instId) => {
@@ -660,7 +722,16 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
           <div style={{display:"flex", justifyContent:"space-between",
             alignItems:"center", marginBottom:8}}>
             <span style={{fontSize:12, color:C.muted}}>Scenario {q} of {total}</span>
-            <span style={{fontSize:12, color:C.muted}}>Clear Articulation</span>
+            {activeExercise.timer_minutes > 0 && timeLeft !== null ? (
+              <span style={{
+                fontSize:14, fontWeight:700, letterSpacing:0.5, fontVariantNumeric:"tabular-nums",
+                color: timeLeft < 60 ? C.red : timeLeft < 120 ? C.amber : C.muted,
+              }}>
+                ⏱ {formatTime(timeLeft)}
+              </span>
+            ) : (
+              <span style={{fontSize:12, color:C.muted}}>Clear Articulation</span>
+            )}
           </div>
           <div style={{display:"flex", gap:5}}>
             {Array.from({length:total},(_,i)=>(
@@ -751,46 +822,7 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
           <button
             onClick={async()=>{
               if (q < total) { setQ(q+1); return; }
-              setSubmitting(true);
-              try {
-                // Save answers to DB
-                await fetch("/api/submit", {
-                  method:"POST",
-                  headers:{"Content-Type":"application/json"},
-                  body: JSON.stringify({
-                    email:       instanceId ? null : userEmail,
-                    name:        userName,
-                    answers:     texts,
-                    instance_id: instanceId || null,
-                    exercise_id: activeExercise.id || null,
-                  }),
-                });
-                setUserAnswers(texts);
-                if (instanceId) await fetchCommunityData(instanceId);
-
-                // Score all scenarios with SHARP (runs in parallel server-side)
-                const scoreRes = await fetch("/api/score-all", {
-                  method:"POST",
-                  headers:{"Content-Type":"application/json"},
-                  body: JSON.stringify({
-                    answers:       texts,
-                    email:         instanceId ? null : userEmail,
-                    name:          userName,
-                    instance_id:   instanceId || null,
-                    exercise_id:   activeExercise.id || null,
-                    exerciseTitle: activeExercise.title,
-                    scenarios:     activeScenarios.map(s=>({
-                      shortTitle: s.short,
-                      text:       s.text,
-                      ctx:        s.ctx,
-                    })),
-                  }),
-                });
-                const scoreData = await scoreRes.json();
-                if (scoreData.sharpResults) setSharpResults(scoreData.sharpResults);
-              } catch { /* non-fatal — still show results */ }
-              setSubmitting(false);
-              setScreen("results");
+              await doSubmit();
             }}
             style={{padding:"10px 20px", borderRadius:8, border:"none",
               background:C.crimson, color:"#fff", fontSize:13,

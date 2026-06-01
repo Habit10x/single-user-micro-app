@@ -68,6 +68,30 @@ const SelectField = ({ label, value, onChange, options }) => (
   </div>
 );
 
+const TIMER_PRESETS = [1, 2, 3, 5, 10, 15, 20, 30];
+
+const TimerField = ({ value, onChange }) => (
+  <div style={{ marginBottom: 14 }}>
+    <Label>Timer</Label>
+    <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+      <label style={{ display: "flex", alignItems: "center", gap: 7, cursor: "pointer", fontSize: 13, color: C.text }}>
+        <input type="checkbox" checked={value > 0}
+          onChange={e => onChange(e.target.checked ? 5 : 0)}
+          style={{ width: 15, height: 15, cursor: "pointer" }} />
+        Enable timer
+      </label>
+      {value > 0 && (
+        <select value={value} onChange={e => onChange(+e.target.value)}
+          style={{ ...inputStyle, width: "auto", marginBottom: 0, padding: "7px 10px" }}>
+          {TIMER_PRESETS.map(m => (
+            <option key={m} value={m}>{m} minute{m !== 1 ? "s" : ""}</option>
+          ))}
+        </select>
+      )}
+    </div>
+  </div>
+);
+
 const Btn = ({ children, onClick, variant = "primary", disabled, style: extra }) => {
   const base = {
     padding: "8px 16px", borderRadius: 7, fontSize: 13, fontWeight: 600,
@@ -528,12 +552,12 @@ function ExercisesTab() {
           </div>
           <Field label="Title" value={form.title} onChange={ef("title")} placeholder="e.g. Articulation-02" />
           <TextareaField label="Description" value={form.description} onChange={ef("description")} rows={2} />
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 120px", gap: 14 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
             <SelectField label="Difficulty" value={form.difficulty} onChange={ef("difficulty")}
               options={["Beginner","Intermediate","Advanced"]} />
             <Field label="Category" value={form.category} onChange={ef("category")} />
-            <Field label="Timer (min)" type="number" value={form.timer_minutes} onChange={ef("timer_minutes")} min={1} />
           </div>
+          <TimerField value={form.timer_minutes} onChange={ef("timer_minutes")} />
         </div>
       ) : !selected ? (
         <Empty icon="📁" text="Select an exercise or create a new one." />
@@ -553,13 +577,12 @@ function ExercisesTab() {
               </div>
               <Field label="Title" value={form.title} onChange={ef("title")} />
               <TextareaField label="Description" value={form.description} onChange={ef("description")} rows={2} />
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 120px", gap: 14 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
                 <SelectField label="Difficulty" value={form.difficulty} onChange={ef("difficulty")}
                   options={["Beginner","Intermediate","Advanced"]} />
                 <Field label="Category" value={form.category} onChange={ef("category")} />
-                <Field label="Timer (min)" type="number" value={form.timer_minutes}
-                  onChange={ef("timer_minutes")} min={1} />
               </div>
+              <TimerField value={form.timer_minutes} onChange={ef("timer_minutes")} />
             </>
           ) : (
             <>
