@@ -6,31 +6,48 @@ export async function GET(request) {
   const email      = searchParams.get("email")?.toLowerCase().trim();
   const instanceId = searchParams.get("instance_id");
   const teamName   = searchParams.get("name")?.trim();
+  const exerciseId = searchParams.get("exercise_id");
+  const exId       = exerciseId ? parseInt(exerciseId) : null;
 
   await initDb();
 
-  // Instance user lookup (case-insensitive name match within instance)
+  // Instance user lookup
   if (instanceId && teamName) {
     const rows = await sql`
-      SELECT name, answers FROM submissions
+      SELECT name, answers, sharp_results FROM submissions
       WHERE instance_id = ${parseInt(instanceId)}
       AND LOWER(TRIM(name)) = LOWER(TRIM(${teamName}))
       LIMIT 1
     `;
     if (!rows.length) return NextResponse.json({ submitted: false });
-    return NextResponse.json({ submitted: true, name: rows[0].name, answers: rows[0].answers });
+    return NextResponse.json({
+      submitted:     true,
+      name:          rows[0].name,
+      answers:       rows[0].answers,
+      sharp_results: rows[0].sharp_results || null,
+    });
   }
 
   if (!email) {
     return NextResponse.json({ error: "Email required" }, { status: 400 });
   }
 
-  const rows = await sql`
-    SELECT s.name, s.answers, s.instance_id, i.name AS instance_name
-    FROM submissions s
-    LEFT JOIN instances i ON s.instance_id = i.id
-    WHERE s.email = ${email} LIMIT 1
-  `;
+  // Look up by (email, exercise_id) when exercise_id is provided
+  const rows = exId
+    ? await sql`
+        SELECT s.name, s.answers, s.sharp_results, s.instance_id, i.name AS instance_name
+        FROM submissions s
+        LEFT JOIN instances i ON s.instance_id = i.id
+        WHERE s.email = ${email} AND s.exercise_id = ${exId}
+        LIMIT 1
+      `
+    : await sql`
+        SELECT s.name, s.answers, s.sharp_results, s.instance_id, i.name AS instance_name
+        FROM submissions s
+        LEFT JOIN instances i ON s.instance_id = i.id
+        WHERE s.email = ${email}
+        LIMIT 1
+      `;
 
   if (!rows.length) return NextResponse.json({ submitted: false });
 
@@ -38,6 +55,7 @@ export async function GET(request) {
     submitted:     true,
     name:          rows[0].name,
     answers:       rows[0].answers,
+    sharp_results: rows[0].sharp_results || null,
     instance_id:   rows[0].instance_id,
     instance_name: rows[0].instance_name,
   });

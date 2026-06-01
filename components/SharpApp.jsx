@@ -29,7 +29,7 @@ const C = {
 };
 
 // ─── Data ─────────────────────────────────────────────────────────────────────
-const SCENARIOS = [
+const DEFAULT_SCENARIOS = [
   { id:1, short:"Project Update", full:"Project Update",
     text:`Your manager asks: "How's the Horizon project coming along?"`,
     ctx:["4 of 6 emails done, approved by marketing","Email 3: legal review delay — resolved","On track for next Friday deadline","Design team hasn't replied about header format — if no reply by Tuesday, 3-day delay"],
@@ -145,7 +145,23 @@ const TopNav = ({userName, userEmail, onLogout, back}) => (
 );
 
 // ─── App ──────────────────────────────────────────────────────────────────────
-export default function SharpApp() {
+// Map a DB scenario row to the component's internal format
+function mapDbScenario(s) {
+  return {
+    id:      s.id,
+    short:   s.short_title,
+    full:    s.full_title,
+    text:    s.prompt,
+    ctx:     Array.isArray(s.context) ? s.context : [],
+    score:   s.score ?? 7,
+    pf:      s.point_first ?? true,
+    headline: s.headline    || "",
+    worked:   s.what_worked || "",
+    improve:  s.to_improve  || "",
+  };
+}
+
+export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosProp }) {
   const [screen,      setScreen]      = useState("login");
   const [nameVal,     setNameVal]     = useState("");
   const [emailVal,    setEmailVal]    = useState("");
@@ -163,6 +179,7 @@ export default function SharpApp() {
   const [loginLoading,setLoginLoading]= useState(false);
   const [loginEnabled,setLoginEnabled]= useState(true);
   const [submitting,  setSubmitting]  = useState(false);
+  const [sharpResults,setSharpResults]= useState({});
 
   const [isModerator,       setIsModerator]       = useState(false);
 
@@ -183,10 +200,30 @@ export default function SharpApp() {
       .catch(()=>{});
   },[]);
 
-  const total      = SCENARIOS.length;
-  const scenario   = SCENARIOS[q-1];
-  const overall    = (SCENARIOS.reduce((a,s)=>a+s.score,0)/total).toFixed(1);
-  const commSc_obj = SCENARIOS.find(s=>s.id===commSc);
+  // Active exercise / scenario data — from DB props or hardcoded defaults
+  const activeScenarios = (scenariosProp && scenariosProp.length > 0)
+    ? scenariosProp.map(mapDbScenario)
+    : DEFAULT_SCENARIOS;
+
+  const activeExercise = exerciseProp || {
+    id:            null,
+    title:         "Articulation-01",
+    description:   "This test will help you in your articulation.",
+    difficulty:    "Intermediate",
+    category:      "Articulation",
+    timer_minutes: 5,
+  };
+
+  const total      = activeScenarios.length;
+  const scenario   = activeScenarios[q-1];
+
+  // Returns the SHARP score (1-10) for a scenario by its position index (1-based), falling back to hardcoded
+  const sharpScore   = (pos) => sharpResults[pos]?.score ?? null;
+  const displayScore = (pos) => sharpScore(pos) ?? activeScenarios[pos-1]?.score ?? 0;
+  const overall = (activeScenarios.reduce((a,_,i)=>a+displayScore(i+1),0)/total).toFixed(1);
+
+  // commSc is a 1-based scenario position within the exercise
+  const commSc_obj = activeScenarios[commSc - 1];
 
   const othersForSc  = COMMUNITY.filter(a=>a.sid===commSc && !a.own);
   // Use real DB answer if available, otherwise fall back to hardcoded sample
@@ -212,14 +249,16 @@ export default function SharpApp() {
     setLoginErr("");
 
     try {
-      const res  = await fetch(`/api/check-submission?email=${encodeURIComponent(emailVal.trim())}`);
+      const exId = activeExercise.id ? `&exercise_id=${activeExercise.id}` : "";
+      const res  = await fetch(`/api/check-submission?email=${encodeURIComponent(emailVal.trim())}${exId}`);
       const data = await res.json();
 
       if (data.submitted) {
         // Returning user — go straight to results
         setUserName(data.name);
         setUserEmail(emailVal.trim().toLowerCase());
-        setUserAnswers(data.answers); // keyed by scenario id string e.g. {"1":"...","2":"..."}
+        setUserAnswers(data.answers);
+        if (data.sharp_results) setSharpResults(data.sharp_results);
         setScreen("results");
       } else if (!loginEnabled) {
         setLoginErr("No account found. New registrations are currently disabled.");
@@ -254,6 +293,7 @@ export default function SharpApp() {
     setInstPin("");
     setInstErr("");
     setCommunityData(null);
+    setSharpResults({});
   };
 
   const fetchCommunityData = async (instId) => {
@@ -295,6 +335,7 @@ export default function SharpApp() {
 
       if (checkData.submitted) {
         setUserAnswers(checkData.answers);
+        if (checkData.sharp_results) setSharpResults(checkData.sharp_results);
         await fetchCommunityData(data.id);
         setScreen("results");
       } else {
@@ -550,17 +591,21 @@ export default function SharpApp() {
 
         <h1 style={{fontSize:36, fontWeight:800, color:C.crimson,
           fontFamily:"Georgia,serif", margin:"0 0 12px", lineHeight:1.15}}>
-          Articulation-01
+          {activeExercise.title}
         </h1>
-        <p style={{fontSize:15, color:C.textSoft, margin:"0 0 20px", lineHeight:1.65}}>
-          This test will help you in your articulation.
-        </p>
+        {activeExercise.description && (
+          <p style={{fontSize:15, color:C.textSoft, margin:"0 0 20px", lineHeight:1.65}}>
+            {activeExercise.description}
+          </p>
+        )}
 
         <div style={{display:"flex", flexWrap:"wrap", gap:8, marginBottom:26}}>
-          <Tag icon="📊" label="Intermediate" />
-          <Tag icon="🎙" label="Articulation" />
+          <Tag icon="📊" label={activeExercise.difficulty || "Intermediate"} />
+          <Tag icon="🎙" label={activeExercise.category || "Articulation"} />
           <Tag icon="📋" label={`${total} Scenarios`} />
-          <Tag icon="⏱" label="5 Minute Timer" highlight />
+          {activeExercise.timer_minutes > 0 && (
+            <Tag icon="⏱" label={`${activeExercise.timer_minutes} Minute Timer`} highlight />
+          )}
         </div>
 
         <hr style={{border:"none", borderTop:"1px solid "+C.border, margin:"0 0 28px"}} />
@@ -708,6 +753,7 @@ export default function SharpApp() {
               if (q < total) { setQ(q+1); return; }
               setSubmitting(true);
               try {
+                // Save answers to DB
                 await fetch("/api/submit", {
                   method:"POST",
                   headers:{"Content-Type":"application/json"},
@@ -716,10 +762,32 @@ export default function SharpApp() {
                     name:        userName,
                     answers:     texts,
                     instance_id: instanceId || null,
+                    exercise_id: activeExercise.id || null,
                   }),
                 });
                 setUserAnswers(texts);
                 if (instanceId) await fetchCommunityData(instanceId);
+
+                // Score all scenarios with SHARP (runs in parallel server-side)
+                const scoreRes = await fetch("/api/score-all", {
+                  method:"POST",
+                  headers:{"Content-Type":"application/json"},
+                  body: JSON.stringify({
+                    answers:       texts,
+                    email:         instanceId ? null : userEmail,
+                    name:          userName,
+                    instance_id:   instanceId || null,
+                    exercise_id:   activeExercise.id || null,
+                    exerciseTitle: activeExercise.title,
+                    scenarios:     activeScenarios.map(s=>({
+                      shortTitle: s.short,
+                      text:       s.text,
+                      ctx:        s.ctx,
+                    })),
+                  }),
+                });
+                const scoreData = await scoreRes.json();
+                if (scoreData.sharpResults) setSharpResults(scoreData.sharpResults);
               } catch { /* non-fatal — still show results */ }
               setSubmitting(false);
               setScreen("results");
@@ -846,7 +914,10 @@ export default function SharpApp() {
             letterSpacing:1.5, textTransform:"uppercase", marginBottom:11}}>
             Scenario Breakdown
           </div>
-          {SCENARIOS.map((s,i)=>(
+          {activeScenarios.map((s,i)=>{
+            const pos = i + 1;
+            const sc = displayScore(pos);
+            return (
             <div key={s.id} style={{background:C.card,
               border:"1px solid "+C.border, borderRadius:10,
               padding:"12px 15px", marginBottom:7,
@@ -860,19 +931,20 @@ export default function SharpApp() {
               <span style={{flex:1, fontSize:14, fontWeight:500, color:C.text}}>
                 {s.short}
               </span>
-              <span style={{background:scoreBg(s.score), color:scoreClr(s.score),
+              <span style={{background:scoreBg(sc), color:scoreClr(sc),
                 fontWeight:700, fontSize:12, padding:"3px 10px",
                 borderRadius:20, marginRight:5}}>
-                {s.score}/10
+                {sc}/10
               </span>
-              <button onClick={()=>{setFbOpen(s.id);setScreen("feedback");}}
+              <button onClick={()=>{setFbOpen(pos);setScreen("feedback");}}
                 style={{background:"none", border:"none", color:C.crimson,
                   fontSize:12, fontWeight:600, cursor:"pointer",
                   textDecoration:"underline", padding:0, fontFamily:"inherit"}}>
                 Feedback
               </button>
             </div>
-          ))}
+            );
+          })}
         </div>
 
         <div style={{background:C.card, border:"1px solid "+C.border,
@@ -896,70 +968,233 @@ export default function SharpApp() {
   );
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // 5. FEEDBACK MODAL
+  // 5. FEEDBACK MODAL — full SHARP UI
   // ═══════════════════════════════════════════════════════════════════════════
   const FeedbackModal = () => {
-    const s = SCENARIOS.find(s=>s.id===fbOpen)||SCENARIOS[0];
+    const pos = fbOpen || 1;
+    const s   = activeScenarios[pos - 1] || activeScenarios[0];
+    const sd  = sharpResults[pos] || sharpResults[String(pos)] || null;
+    const sc  = displayScore(pos);
+    const pf  = sd ? sd.pointFirst : s?.pf;
+
+    // Format camelCase dimension name for display
+    const fmtDim = d => d.replace(/([A-Z])/g," $1").replace(/^./, c=>c.toUpperCase());
+
+    // Impact card color by level
+    const impactStyle = (level) => {
+      if (level === "high")   return { bg: C.crimsonPale,  border: C.crimsonBorder, lc: C.crimson };
+      if (level === "medium") return { bg: C.amberPale,    border: "#FDE68A",       lc: C.amberDark };
+      return                         { bg: C.tag,          border: C.border,        lc: C.muted };
+    };
+
+    const confidenceBadge = sd ? {
+      HIGH:   { bg: C.greenPale,   color: C.green    },
+      MEDIUM: { bg: C.amberPale,   color: C.amber    },
+      LOW:    { bg: C.crimsonPale, color: C.crimson  },
+    }[sd.scoreConfidence] || {} : null;
+
     return (
       <div onClick={()=>setScreen("results")}
         style={{position:"fixed", inset:0, background:"rgba(0,0,0,0.4)",
           display:"flex", alignItems:"center", justifyContent:"center",
           zIndex:200, padding:"20px"}}>
         <div onClick={e=>e.stopPropagation()}
-          style={{background:C.card, borderRadius:16, width:"100%", maxWidth:480,
-            maxHeight:"85vh", overflowY:"auto",
+          style={{background:C.card, borderRadius:16, width:"100%", maxWidth:500,
+            maxHeight:"88vh", overflowY:"auto",
             boxShadow:"0 20px 60px rgba(0,0,0,0.25)"}}>
 
+          {/* ── Header ── */}
           <div style={{padding:"17px 20px", borderBottom:"1px solid "+C.border,
-            display:"flex", alignItems:"center", justifyContent:"space-between"}}>
+            display:"flex", alignItems:"center", justifyContent:"space-between",
+            position:"sticky", top:0, background:C.card, zIndex:10}}>
             <div>
               <div style={{fontSize:10, color:C.muted, letterSpacing:1.2,
                 textTransform:"uppercase", marginBottom:3}}>
-                Scenario {s.id} · Feedback
+                Scenario {pos} · SHARP Feedback
               </div>
-              <div style={{fontSize:16, fontWeight:700, color:C.text}}>{s.full}</div>
+              <div style={{fontSize:16, fontWeight:700, color:C.text}}>{s?.full}</div>
             </div>
-            <div style={{display:"flex", alignItems:"center", gap:9}}>
-              <span style={{background:scoreBg(s.score), color:scoreClr(s.score),
-                fontWeight:700, fontSize:15, padding:"4px 12px", borderRadius:20}}>
-                {s.score}/10
-              </span>
+            <div style={{display:"flex", alignItems:"center", gap:8}}>
+              <div style={{textAlign:"right"}}>
+                <div style={{background:scoreBg(sc), color:scoreClr(sc),
+                  fontWeight:800, fontSize:16, padding:"4px 12px", borderRadius:20}}>
+                  {sc}/10
+                </div>
+                {sd && confidenceBadge && (
+                  <div style={{fontSize:9, fontWeight:700, textAlign:"center",
+                    marginTop:3, color:confidenceBadge.color,
+                    letterSpacing:0.8, textTransform:"uppercase"}}>
+                    {sd.scoreConfidence} confidence
+                  </div>
+                )}
+              </div>
               <button onClick={()=>setScreen("results")}
                 style={{background:C.borderLight, border:"none", color:C.muted,
                   width:28, height:28, borderRadius:"50%", cursor:"pointer",
-                  fontSize:16, display:"flex", alignItems:"center", justifyContent:"center"}}>
+                  fontSize:16, display:"flex", alignItems:"center", justifyContent:"center",
+                  flexShrink:0}}>
                 ✕
               </button>
             </div>
           </div>
 
           <div style={{padding:"18px 20px 22px"}}>
-            <div style={{marginBottom:14}}>
+
+            {/* ── Point First badge ── */}
+            <div style={{marginBottom:16}}>
               <span style={{display:"inline-flex", alignItems:"center", gap:5,
-                background:s.pf?C.greenPale:C.crimsonPale,
-                padding:"4px 12px", borderRadius:99,
-                fontSize:12, fontWeight:600, color:s.pf?C.green:C.crimson}}>
-                {s.pf?"✅":"❌"} Point First: {s.pf?"Yes":"No"}
+                background:pf?C.greenPale:C.crimsonPale,
+                border:"1px solid "+(pf?C.green:C.crimsonBorder),
+                padding:"5px 13px", borderRadius:99,
+                fontSize:12, fontWeight:600, color:pf?C.green:C.crimson}}>
+                {pf?"✅ Led with the point":"❌ Key point buried"}
               </span>
             </div>
 
-            {[
-              {label:"Summary",    text:s.headline, bg:"#1C1C1C", tc:"#fff",      lc:"#888"},
-              {label:"What Worked",text:s.worked,   bg:C.greenPale, tc:C.greenDark, lc:C.greenDark},
-              {label:"To Improve", text:s.improve,  bg:C.amberPale, tc:C.amberDark, lc:C.amberDark},
-            ].map(b=>(
-              <div key={b.label} style={{background:b.bg, borderRadius:10,
-                padding:"12px 15px", marginBottom:9}}>
-                <div style={{fontSize:9, fontWeight:700, color:b.lc,
-                  letterSpacing:1.5, textTransform:"uppercase", marginBottom:4}}>
-                  {b.label}
+            {sd ? (
+              <>
+                {/* ── One-liner summary ── */}
+                <div style={{background:"#1C1C1C", borderRadius:10,
+                  padding:"13px 16px", marginBottom:14}}>
+                  <div style={{fontSize:9, fontWeight:700, color:"#888",
+                    letterSpacing:1.5, textTransform:"uppercase", marginBottom:5}}>
+                    Summary
+                  </div>
+                  <div style={{fontSize:14, color:"#fff", lineHeight:1.6,
+                    fontWeight:600, fontStyle:"italic"}}>
+                    {sd.oneLiner}
+                  </div>
                 </div>
-                <div style={{fontSize:13, color:b.tc, lineHeight:1.6,
-                  fontWeight:b.bg==="#1C1C1C"?600:400}}>
-                  {b.text}
+
+                {/* ── Dimension scores ── */}
+                {Object.keys(sd.dimensionScores).length > 0 && (
+                  <div style={{background:C.bg, borderRadius:10,
+                    padding:"13px 16px", marginBottom:14,
+                    border:"1px solid "+C.borderLight}}>
+                    <div style={{fontSize:9, fontWeight:700, color:C.muted,
+                      letterSpacing:1.5, textTransform:"uppercase", marginBottom:12}}>
+                      Dimension Scores
+                    </div>
+                    {Object.entries(sd.dimensionScores).map(([dim, val])=>{
+                      const pct = Math.round((val/10)*100);
+                      const barColor = val>=8?C.green : val>=6?C.amber : C.red;
+                      return (
+                        <div key={dim} style={{marginBottom:10}}>
+                          <div style={{display:"flex", justifyContent:"space-between",
+                            alignItems:"center", marginBottom:4}}>
+                            <span style={{fontSize:12, color:C.textSoft, fontWeight:500}}>
+                              {fmtDim(dim)}
+                            </span>
+                            <span style={{fontSize:12, fontWeight:700, color:barColor}}>
+                              {val}/10
+                            </span>
+                          </div>
+                          <div style={{height:5, background:C.borderLight, borderRadius:99}}>
+                            <div style={{height:"100%", width:pct+"%",
+                              background:barColor, borderRadius:99,
+                              transition:"width 0.4s ease"}} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* ── What Worked ── */}
+                {sd.whatWorked?.length > 0 && (
+                  <div style={{background:C.greenPale, borderRadius:10,
+                    padding:"13px 16px", marginBottom:14,
+                    border:"1px solid #A7F3D0"}}>
+                    <div style={{fontSize:9, fontWeight:700, color:C.greenDark,
+                      letterSpacing:1.5, textTransform:"uppercase", marginBottom:8}}>
+                      What Worked
+                    </div>
+                    {sd.whatWorked.map((w,i)=>(
+                      <div key={i} style={{display:"flex", gap:8, marginBottom:i<sd.whatWorked.length-1?7:0}}>
+                        <span style={{color:C.green, fontWeight:700, flexShrink:0, marginTop:1}}>✓</span>
+                        <span style={{fontSize:13, color:C.greenDark, lineHeight:1.6}}>{w}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* ── Impact Cards ── */}
+                {sd.impacts?.length > 0 && (
+                  <>
+                    <div style={{fontSize:9, fontWeight:700, color:C.muted,
+                      letterSpacing:1.5, textTransform:"uppercase", marginBottom:9}}>
+                      Where Impact Was Lost
+                    </div>
+                    {sd.impacts.map((card,i)=>{
+                      const is = impactStyle(card.level);
+                      return (
+                        <div key={i} style={{background:is.bg,
+                          border:"1px solid "+is.border,
+                          borderRadius:10, padding:"12px 15px", marginBottom:9}}>
+                          <div style={{display:"flex", alignItems:"center",
+                            gap:7, marginBottom:7}}>
+                            <span style={{fontSize:9, fontWeight:700, color:is.lc,
+                              letterSpacing:1.2, textTransform:"uppercase",
+                              border:"1px solid "+is.lc, borderRadius:4,
+                              padding:"1px 5px"}}>
+                              {card.level}
+                            </span>
+                          </div>
+                          <p style={{fontSize:13, color:C.text, lineHeight:1.6,
+                            margin:"0 0 7px", fontWeight:500}}>
+                            {card.observation}
+                          </p>
+                          <p style={{fontSize:12, color:C.textSoft, lineHeight:1.55,
+                            margin:"0 0 "+(card.principle?"6px":"0")}}>
+                            {card.why}
+                          </p>
+                          {card.principle && (
+                            <p style={{fontSize:11, color:is.lc, fontStyle:"italic",
+                              margin:0, lineHeight:1.5, fontWeight:500}}>
+                              {card.principle}
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </>
+                )}
+              </>
+            ) : (
+              /* Fallback: hardcoded feedback while scoring or if no SHARP data */
+              <>
+                <div style={{background:"#1C1C1C", borderRadius:10,
+                  padding:"12px 15px", marginBottom:9}}>
+                  <div style={{fontSize:9, fontWeight:700, color:"#888",
+                    letterSpacing:1.5, textTransform:"uppercase", marginBottom:4}}>
+                    Summary
+                  </div>
+                  <div style={{fontSize:13, color:"#fff", lineHeight:1.6, fontWeight:600}}>
+                    {s.headline}
+                  </div>
                 </div>
-              </div>
-            ))}
+                <div style={{background:C.greenPale, borderRadius:10,
+                  padding:"12px 15px", marginBottom:9}}>
+                  <div style={{fontSize:9, fontWeight:700, color:C.greenDark,
+                    letterSpacing:1.5, textTransform:"uppercase", marginBottom:4}}>
+                    What Worked
+                  </div>
+                  <div style={{fontSize:13, color:C.greenDark, lineHeight:1.6}}>
+                    {s.worked}
+                  </div>
+                </div>
+                <div style={{background:C.amberPale, borderRadius:10,
+                  padding:"12px 15px", marginBottom:9}}>
+                  <div style={{fontSize:9, fontWeight:700, color:C.amberDark,
+                    letterSpacing:1.5, textTransform:"uppercase", marginBottom:4}}>
+                    To Improve
+                  </div>
+                  <div style={{fontSize:13, color:C.amberDark, lineHeight:1.6}}>
+                    {s.improve}
+                  </div>
+                </div>
+              </>
+            )}
 
             <button onClick={()=>setScreen("results")}
               style={{width:"100%", padding:"11px", background:C.crimson,
@@ -1008,17 +1243,20 @@ export default function SharpApp() {
 
         <div style={{display:"flex", gap:6, overflowX:"auto",
           marginBottom:22, paddingBottom:3}}>
-          {SCENARIOS.map(s=>(
-            <button key={s.id} onClick={()=>setCommSc(s.id)}
+          {activeScenarios.map((s,i)=>{
+            const pos = i + 1;
+            return (
+            <button key={s.id} onClick={()=>setCommSc(pos)}
               style={{padding:"6px 14px", borderRadius:99, border:"1.5px solid",
-                borderColor:commSc===s.id?C.crimson:C.border,
-                background:commSc===s.id?C.crimsonPale:C.card,
-                color:commSc===s.id?C.crimson:C.muted,
+                borderColor:commSc===pos?C.crimson:C.border,
+                background:commSc===pos?C.crimsonPale:C.card,
+                color:commSc===pos?C.crimson:C.muted,
                 fontSize:12, fontWeight:600, cursor:"pointer",
                 whiteSpace:"nowrap", flexShrink:0}}>
-              {s.id}. {s.short}
+              {pos}. {s.short}
             </button>
-          ))}
+            );
+          })}
         </div>
 
         {commSc_obj && (
@@ -1027,7 +1265,7 @@ export default function SharpApp() {
             <div style={{padding:"13px 17px", borderBottom:"1px solid "+C.borderLight}}>
               <div style={{fontSize:10, fontWeight:700, color:C.muted,
                 letterSpacing:1.5, textTransform:"uppercase", marginBottom:7}}>
-                Scenario {commSc_obj.id}
+                Scenario {commSc}
               </div>
               <p style={{fontSize:14, color:C.text, lineHeight:1.7,
                 margin:0, fontStyle:"italic", fontWeight:500}}>

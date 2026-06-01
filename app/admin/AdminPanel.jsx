@@ -372,18 +372,48 @@ function ExercisesTab() {
   const [form, setForm]                 = useState(EMPTY_EXERCISE);
   const [saving, setSaving]             = useState(false);
   const [showPicker, setShowPicker]     = useState(false);
+  const [defaultExId, setDefaultExId]   = useState(null);
+  const [copiedId, setCopiedId]         = useState(null);
+  const [settingDefault, setSettingDefault] = useState(false);
 
   const ef = k => v => setForm(p => ({ ...p, [k]: v }));
 
   const loadList = useCallback(async () => {
-    const [exs, scns] = await Promise.all([
+    const [exs, scns, settings] = await Promise.all([
       fetch("/api/admin/exercises").then(r => r.json()),
       fetch("/api/admin/scenarios").then(r => r.json()),
+      fetch("/api/admin/settings").then(r => r.json()),
     ]);
     setExercises(exs);
     setAllScenarios(scns);
+    setDefaultExId(settings.default_exercise_id || null);
     setLoading(false);
   }, []);
+
+  const copyLink = (id) => {
+    const url = `${window.location.origin}/e/${id}`;
+    navigator.clipboard.writeText(url).catch(() => {
+      const ta = document.createElement("textarea");
+      ta.value = url;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+    });
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const setAsDefault = async (id) => {
+    setSettingDefault(true);
+    await fetch("/api/admin/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: "default_exercise_id", value: String(id) }),
+    });
+    setDefaultExId(String(id));
+    setSettingDefault(false);
+  };
 
   useEffect(() => { loadList(); }, [loadList]);
 
@@ -470,7 +500,12 @@ function ExercisesTab() {
                 background: selected?.id === ex.id ? C.crimsonPale : "transparent",
                 borderLeft: `3px solid ${selected?.id === ex.id ? C.crimson : "transparent"}`,
                 borderBottom: "1px solid " + C.borderLight }}>
-              <div style={{ fontWeight: 600, fontSize: 13, color: C.text }}>{ex.title}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ fontWeight: 600, fontSize: 13, color: C.text, flex: 1 }}>{ex.title}</span>
+                {String(defaultExId) === String(ex.id) && (
+                  <span style={{ fontSize: 10, color: C.crimson, fontWeight: 700 }}>★</span>
+                )}
+              </div>
               <div style={{ fontSize: 11, color: C.muted, marginTop: 3 }}>
                 {ex.difficulty} · {ex.category} · {ex.scenario_count} scenario{ex.scenario_count !== 1 ? "s" : ""}
               </div>
@@ -540,13 +575,20 @@ function ExercisesTab() {
                       {selected.description}
                     </p>
                   )}
-                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                     {[selected.difficulty, selected.category, `${selected.timer_minutes} min`].map(t => (
                       <span key={t} style={{ fontSize: 11, fontWeight: 600, padding: "3px 10px",
                         borderRadius: 99, background: "#F0EBE3", color: "#4A3F38" }}>
                         {t}
                       </span>
                     ))}
+                    {String(defaultExId) === String(selected.id) && (
+                      <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 10px",
+                        borderRadius: 99, background: C.crimsonPale,
+                        border: "1px solid " + C.crimsonBorder, color: C.crimson }}>
+                        ★ Default
+                      </span>
+                    )}
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
@@ -559,6 +601,43 @@ function ExercisesTab() {
                     setMode("editInfo");
                   }}>Edit</Btn>
                   <Btn variant="danger" onClick={del}>Delete</Btn>
+                </div>
+              </div>
+
+              {/* ── Shareable link row ── */}
+              <div style={{ background: C.bg, border: "1px solid " + C.borderLight,
+                borderRadius: 9, padding: "10px 14px", marginTop: 14,
+                display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                <span style={{ flex: 1, fontSize: 12, color: C.textSoft,
+                  fontFamily: "monospace", overflow: "hidden",
+                  textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
+                  {typeof window !== "undefined" ? `${window.location.origin}/e/${selected.id}` : `/e/${selected.id}`}
+                </span>
+                <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+                  <button onClick={() => copyLink(selected.id)}
+                    style={{ padding: "5px 13px", borderRadius: 7, fontSize: 12, fontWeight: 700,
+                      cursor: "pointer", fontFamily: "inherit", border: "1.5px solid",
+                      borderColor: copiedId === selected.id ? C.green : C.crimsonBorder,
+                      background: copiedId === selected.id ? C.greenPale : C.crimsonPale,
+                      color: copiedId === selected.id ? C.green : C.crimson }}>
+                    {copiedId === selected.id ? "✓ Copied!" : "Copy Link"}
+                  </button>
+                  {String(defaultExId) !== String(selected.id) && (
+                    <button onClick={() => setAsDefault(selected.id)} disabled={settingDefault}
+                      style={{ padding: "5px 13px", borderRadius: 7, fontSize: 12, fontWeight: 600,
+                        cursor: settingDefault ? "not-allowed" : "pointer",
+                        fontFamily: "inherit", border: "1.5px solid " + C.border,
+                        background: "transparent", color: C.textSoft,
+                        opacity: settingDefault ? 0.6 : 1 }}>
+                      {settingDefault ? "Setting…" : "★ Set as Default"}
+                    </button>
+                  )}
+                  {String(defaultExId) === String(selected.id) && (
+                    <span style={{ fontSize: 12, color: C.green, fontWeight: 600,
+                      display: "flex", alignItems: "center" }}>
+                      ✓ Opens at root URL
+                    </span>
+                  )}
                 </div>
               </div>
             </>
