@@ -70,6 +70,88 @@ const SelectField = ({ label, value, onChange, options }) => (
 
 const TIMER_PRESETS = [1, 2, 3, 5, 10, 15, 20, 30];
 
+// ─── Dimension definitions (used by WeightsEditor) ───────────────────────────
+
+const DIMENSIONS = [
+  { key: "directness",           label: "Directness",            desc: "Key point arrives first without softening" },
+  { key: "specificity",          label: "Specificity",           desc: "Uses concrete, available details" },
+  { key: "hierarchy",            label: "Hierarchy",             desc: "Most important item positioned first" },
+  { key: "listenerOrientation",  label: "Listener Orientation",  desc: "Shaped for this specific listener" },
+  { key: "emotionalCalibration", label: "Emotional Calibration", desc: "Tone fits the relationship & stakes" },
+  { key: "economy",              label: "Economy",               desc: "No padding or repetition" },
+  { key: "completeness",         label: "Completeness",          desc: "All needed elements present" },
+];
+
+function WeightsEditor({ value, onChange }) {
+  const active = Object.keys(value).length;
+  const total  = Object.values(value).reduce((a, b) => a + (Number(b) || 0), 0);
+
+  const toggle = key => {
+    if (key in value) {
+      const next = { ...value };
+      delete next[key];
+      onChange(next);
+    } else {
+      onChange({ ...value, [key]: 0 });
+    }
+  };
+
+  const setWeight = (key, v) => {
+    onChange({ ...value, [key]: Math.min(100, Math.max(0, Number(v) || 0)) });
+  };
+
+  return (
+    <div>
+      <div style={{ fontSize: 12, color: C.muted, marginBottom: 10 }}>
+        {active === 0
+          ? "No dimensions selected — algorithm will use its built-in per-scenario weights."
+          : "Active dimensions must sum to exactly 100%."}
+      </div>
+      {DIMENSIONS.map(dim => {
+        const enabled = dim.key in value;
+        return (
+          <div key={dim.key} style={{
+            display: "flex", alignItems: "center", gap: 10,
+            padding: "9px 12px", borderRadius: 8, marginBottom: 6,
+            background: enabled ? C.crimsonPale : C.bg,
+            border: "1px solid " + (enabled ? C.crimsonBorder : C.borderLight),
+            transition: "background 0.15s",
+          }}>
+            <input type="checkbox" checked={enabled} onChange={() => toggle(dim.key)}
+              style={{ width: 15, height: 15, cursor: "pointer", accentColor: C.crimson, flexShrink: 0 }} />
+            <div style={{ flex: 1, opacity: enabled ? 1 : 0.45 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>{dim.label}</div>
+              <div style={{ fontSize: 11, color: C.muted }}>{dim.desc}</div>
+            </div>
+            {enabled && (
+              <div style={{ display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
+                <input type="number" value={value[dim.key]} min={0} max={100}
+                  onChange={e => setWeight(dim.key, e.target.value)}
+                  style={{ ...inputStyle, width: 62, marginBottom: 0,
+                    textAlign: "right", padding: "5px 8px" }} />
+                <span style={{ fontSize: 13, color: C.muted, fontWeight: 600 }}>%</span>
+              </div>
+            )}
+          </div>
+        );
+      })}
+      {active > 0 && (
+        <div style={{
+          display: "flex", justifyContent: "flex-end", alignItems: "center",
+          gap: 8, marginTop: 4, padding: "8px 12px", borderRadius: 8,
+          background: total === 100 ? C.greenPale : "#FEE2E2",
+          border: "1px solid " + (total === 100 ? "#A7F3D0" : "#FECACA"),
+        }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: total === 100 ? C.green : C.red }}>
+            Total: {total}%
+            {total === 100 ? " ✓" : total < 100 ? ` — add ${100 - total}% more` : ` — remove ${total - 100}%`}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const TimerField = ({ value, onChange }) => (
   <div style={{ marginBottom: 14 }}>
     <Label>Timer</Label>
@@ -380,16 +462,237 @@ function ScenariosTab() {
   );
 }
 
+// ─── Algorithms Tab ───────────────────────────────────────────────────────────
+
+function AlgorithmsTab() {
+  const [algorithms, setAlgorithms] = useState([]);
+  const [loading,    setLoading]    = useState(true);
+  const [selected,   setSelected]   = useState(null);
+  const [mode,       setMode]       = useState("idle"); // "idle" | "view" | "create"
+  const [sharpPrompt, setSharpPrompt] = useState("");
+
+  const [name,       setName]       = useState("");
+  const [basePrompt, setBasePrompt] = useState("");
+  const [weights,    setWeights]    = useState({});
+  const [saving,     setSaving]     = useState(false);
+  const [error,      setError]      = useState("");
+
+  const load = useCallback(async () => {
+    const data = await fetch("/api/admin/algorithms").then(r => r.json());
+    setAlgorithms(data);
+    setLoading(false);
+    const sharp = data.find(a => a.name === "SHARP");
+    if (sharp) setSharpPrompt(sharp.base_prompt);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const pick = async algo => {
+    const data = await fetch(`/api/admin/algorithms/${algo.id}`).then(r => r.json());
+    setSelected(data);
+    setMode("view");
+  };
+
+  const startCreate = () => {
+    setSelected(null);
+    setName("");
+    setBasePrompt("");
+    setWeights({});
+    setError("");
+    setMode("create");
+  };
+
+  const save = async () => {
+    setError("");
+    if (!name.trim())       { setError("Algorithm name is required."); return; }
+    if (!basePrompt.trim()) { setError("Base prompt is required."); return; }
+    const activeCount = Object.keys(weights).length;
+    if (activeCount > 0) {
+      const total = Object.values(weights).reduce((a, b) => a + Number(b), 0);
+      if (total !== 100) { setError(`Dimension weights must sum to 100% (currently ${total}%).`); return; }
+    }
+    setSaving(true);
+    const res  = await fetch("/api/admin/algorithms", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: name.trim(), base_prompt: basePrompt.trim(), dimension_weights: weights }),
+    });
+    const data = await res.json();
+    if (!res.ok) { setError(data.error || "Failed to create."); setSaving(false); return; }
+    await load();
+    setSaving(false);
+    await pick(data);
+  };
+
+  const isBuiltIn = algo => algo?.name === "SHARP";
+
+  return (
+    <div style={{ display: "flex", height: "calc(100vh - 108px)" }}>
+      {/* ── Left: list ── */}
+      <div style={{ width: 290, flexShrink: 0, borderRight: "1px solid " + C.border,
+        display: "flex", flexDirection: "column", overflowY: "auto" }}>
+        <div style={{ padding: "12px 14px", borderBottom: "1px solid " + C.border, flexShrink: 0 }}>
+          <Btn onClick={startCreate} style={{ width: "100%" }}>+ New Algorithm</Btn>
+        </div>
+        {loading
+          ? <div style={{ padding: 20, color: C.muted, fontSize: 13 }}>Loading…</div>
+          : algorithms.map(algo => (
+            <div key={algo.id} onClick={() => pick(algo)}
+              style={{ padding: "12px 14px", cursor: "pointer",
+                background: selected?.id === algo.id ? C.crimsonPale : "transparent",
+                borderLeft: `3px solid ${selected?.id === algo.id ? C.crimson : "transparent"}`,
+                borderBottom: "1px solid " + C.borderLight }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                <span style={{ fontWeight: 600, fontSize: 13, color: C.text, flex: 1 }}>
+                  {algo.name}
+                </span>
+                {isBuiltIn(algo) && (
+                  <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px",
+                    borderRadius: 99, background: C.crimsonLight, color: C.crimson }}>
+                    Built-in
+                  </span>
+                )}
+              </div>
+              <div style={{ fontSize: 11, color: C.muted, marginTop: 3 }}>
+                {algo.exercise_count} exercise{algo.exercise_count !== 1 ? "s" : ""} · {
+                  new Date(algo.created_at).toLocaleDateString("en-IN",
+                    { day: "numeric", month: "short", year: "numeric" })}
+              </div>
+            </div>
+          ))
+        }
+      </div>
+
+      {/* ── Right: view / create ── */}
+      {mode === "idle" ? (
+        <Empty icon="🧠" text="Select an algorithm to view, or create a new one." />
+      ) : mode === "create" ? (
+        <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between",
+            alignItems: "center", marginBottom: 20 }}>
+            <h2 style={{ fontSize: 18, fontWeight: 700, fontFamily: "Georgia,serif",
+              color: C.text, margin: 0 }}>New Algorithm</h2>
+            <div style={{ display: "flex", gap: 8 }}>
+              <Btn variant="ghost" onClick={() => setMode("idle")}>Cancel</Btn>
+              <Btn onClick={save} disabled={saving}>{saving ? "Creating…" : "Create"}</Btn>
+            </div>
+          </div>
+
+          {error && (
+            <div style={{ background: "#FEE2E2", border: "1px solid #FECACA", borderRadius: 8,
+              padding: "10px 14px", fontSize: 13, color: C.red, marginBottom: 16 }}>
+              {error}
+            </div>
+          )}
+
+          <Field label="Algorithm Name" value={name} onChange={setName}
+            placeholder="e.g. SHARP v2, Casual Mode, Strict Eval" />
+
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ display: "flex", justifyContent: "space-between",
+              alignItems: "center", marginBottom: 5 }}>
+              <Label>Base Prompt (System Prompt)</Label>
+              {sharpPrompt && (
+                <button onClick={() => setBasePrompt(sharpPrompt)}
+                  style={{ fontSize: 11, color: C.crimson, fontWeight: 600,
+                    background: "none", border: "none", cursor: "pointer",
+                    padding: "2px 0", fontFamily: "inherit" }}>
+                  Copy from SHARP ↓
+                </button>
+              )}
+            </div>
+            <textarea value={basePrompt} onChange={e => setBasePrompt(e.target.value)} rows={18}
+              placeholder="Paste your system prompt here. Click 'Copy from SHARP' to start from the built-in prompt."
+              style={{ ...inputStyle, resize: "vertical", lineHeight: 1.6,
+                fontFamily: "monospace", fontSize: 12 }} />
+          </div>
+
+          <div style={{ marginBottom: 14 }}>
+            <Label>Dimension Weights</Label>
+            <WeightsEditor value={weights} onChange={setWeights} />
+          </div>
+        </div>
+      ) : selected && (
+        <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px" }}>
+          {/* Header */}
+          <div style={{ display: "flex", justifyContent: "space-between",
+            alignItems: "flex-start", marginBottom: 20 }}>
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                <h2 style={{ fontSize: 20, fontWeight: 700, fontFamily: "Georgia,serif",
+                  color: C.text, margin: 0 }}>{selected.name}</h2>
+                {isBuiltIn(selected) && (
+                  <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 10px",
+                    borderRadius: 99, background: C.crimsonLight, color: C.crimson }}>
+                    Built-in
+                  </span>
+                )}
+              </div>
+              <div style={{ fontSize: 12, color: C.muted }}>
+                Created {new Date(selected.created_at).toLocaleDateString("en-IN",
+                  { day: "numeric", month: "short", year: "numeric" })}
+                {" · "}
+                {selected.exercise_count > 0
+                  ? `Used by ${selected.exercise_count} exercise${selected.exercise_count !== 1 ? "s" : ""}`
+                  : "Not used by any exercise"}
+              </div>
+            </div>
+          </div>
+
+          {/* Weights */}
+          <div style={{ marginBottom: 20 }}>
+            <Label>Dimension Weights</Label>
+            {!selected.dimension_weights || Object.keys(selected.dimension_weights).length === 0 ? (
+              <div style={{ fontSize: 13, color: C.muted, fontStyle: "italic", padding: "8px 0" }}>
+                Uses built-in per-scenario weights (SHARP default).
+              </div>
+            ) : (
+              <div>
+                {DIMENSIONS.filter(d => d.key in selected.dimension_weights).map(d => (
+                  <div key={d.key} style={{ display: "flex", alignItems: "center", gap: 10,
+                    padding: "8px 12px", borderRadius: 7, marginBottom: 5,
+                    background: C.crimsonPale, border: "1px solid " + C.crimsonBorder }}>
+                    <div style={{ flex: 1 }}>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>{d.label}</span>
+                      <span style={{ fontSize: 11, color: C.muted, marginLeft: 8 }}>{d.desc}</span>
+                    </div>
+                    <span style={{ fontSize: 14, fontWeight: 800, color: C.crimson }}>
+                      {selected.dimension_weights[d.key]}%
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <Divider />
+
+          {/* Base Prompt */}
+          <div style={{ marginBottom: 14 }}>
+            <Label>Base Prompt</Label>
+            <pre style={{ background: C.bg, border: "1px solid " + C.borderLight,
+              borderRadius: 8, padding: "14px 16px", fontSize: 12, lineHeight: 1.65,
+              color: C.text, fontFamily: "monospace", whiteSpace: "pre-wrap",
+              wordBreak: "break-word", maxHeight: 460, overflowY: "auto", margin: 0 }}>
+              {selected.base_prompt || "(no prompt stored)"}
+            </pre>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Exercises Tab ────────────────────────────────────────────────────────────
 
 const EMPTY_EXERCISE = {
-  title: "", description: "", difficulty: "Intermediate",
-  category: "Articulation", timer_minutes: 5,
+  title: "", description: "", timer_minutes: 5, tags: "",
 };
 
 function ExercisesTab() {
   const [exercises, setExercises]       = useState([]);
   const [allScenarios, setAllScenarios] = useState([]);
+  const [allAlgorithms, setAllAlgorithms] = useState([]);
   const [selected, setSelected]         = useState(null);
   const [loading, setLoading]           = useState(true);
   const [mode, setMode]                 = useState("idle"); // "idle" | "create" | "editInfo"
@@ -399,17 +702,23 @@ function ExercisesTab() {
   const [defaultExId, setDefaultExId]   = useState(null);
   const [copiedId, setCopiedId]         = useState(null);
   const [settingDefault, setSettingDefault] = useState(false);
+  const [sessions,      setSessions]    = useState([]);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [editingSession, setEditingSession]   = useState(null);
+  const [changingAlgo, setChangingAlgo] = useState(false);
 
   const ef = k => v => setForm(p => ({ ...p, [k]: v }));
 
   const loadList = useCallback(async () => {
-    const [exs, scns, settings] = await Promise.all([
+    const [exs, scns, settings, algos] = await Promise.all([
       fetch("/api/admin/exercises").then(r => r.json()),
       fetch("/api/admin/scenarios").then(r => r.json()),
       fetch("/api/admin/settings").then(r => r.json()),
+      fetch("/api/admin/algorithms").then(r => r.json()),
     ]);
     setExercises(exs);
     setAllScenarios(scns);
+    setAllAlgorithms(algos);
     setDefaultExId(settings.default_exercise_id || null);
     setLoading(false);
   }, []);
@@ -441,11 +750,20 @@ function ExercisesTab() {
 
   useEffect(() => { loadList(); }, [loadList]);
 
+  const fetchSessions = async exId => {
+    setSessionsLoading(true);
+    const data = await fetch(`/api/admin/sessions?exercise_id=${exId}`).then(r => r.json());
+    setSessions(data.sessions || []);
+    setSessionsLoading(false);
+  };
+
   const pick = async ex => {
     const data = await fetch(`/api/admin/exercises/${ex.id}`).then(r => r.json());
     setSelected(data);
     setMode("idle");
     setShowPicker(false);
+    setEditingSession(null);
+    fetchSessions(ex.id);
   };
 
   const createExercise = async () => {
@@ -531,7 +849,7 @@ function ExercisesTab() {
                 )}
               </div>
               <div style={{ fontSize: 11, color: C.muted, marginTop: 3 }}>
-                {ex.difficulty} · {ex.category} · {ex.scenario_count} scenario{ex.scenario_count !== 1 ? "s" : ""}
+                {ex.tags ? ex.tags + " · " : ""}{ex.scenario_count} scenario{ex.scenario_count !== 1 ? "s" : ""}
               </div>
             </div>
           ))
@@ -552,11 +870,8 @@ function ExercisesTab() {
           </div>
           <Field label="Title" value={form.title} onChange={ef("title")} placeholder="e.g. Articulation-02" />
           <TextareaField label="Description" value={form.description} onChange={ef("description")} rows={2} />
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-            <SelectField label="Difficulty" value={form.difficulty} onChange={ef("difficulty")}
-              options={["Beginner","Intermediate","Advanced"]} />
-            <Field label="Category" value={form.category} onChange={ef("category")} />
-          </div>
+          <Field label="Tags (comma-separated)" value={form.tags} onChange={ef("tags")}
+            placeholder="e.g. Solo, Intermediate, Written" />
           <TimerField value={form.timer_minutes} onChange={ef("timer_minutes")} />
         </div>
       ) : !selected ? (
@@ -577,11 +892,8 @@ function ExercisesTab() {
               </div>
               <Field label="Title" value={form.title} onChange={ef("title")} />
               <TextareaField label="Description" value={form.description} onChange={ef("description")} rows={2} />
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-                <SelectField label="Difficulty" value={form.difficulty} onChange={ef("difficulty")}
-                  options={["Beginner","Intermediate","Advanced"]} />
-                <Field label="Category" value={form.category} onChange={ef("category")} />
-              </div>
+              <Field label="Tags (comma-separated)" value={form.tags} onChange={ef("tags")}
+                placeholder="e.g. Solo, Intermediate, Written" />
               <TimerField value={form.timer_minutes} onChange={ef("timer_minutes")} />
             </>
           ) : (
@@ -599,7 +911,10 @@ function ExercisesTab() {
                     </p>
                   )}
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                    {[selected.difficulty, selected.category, `${selected.timer_minutes} min`].map(t => (
+                    {[
+                      ...(selected.tags ? selected.tags.split(",").map(t => t.trim()).filter(Boolean) : []),
+                      `${selected.timer_minutes} min`,
+                    ].map(t => (
                       <span key={t} style={{ fontSize: 11, fontWeight: 600, padding: "3px 10px",
                         borderRadius: 99, background: "#F0EBE3", color: "#4A3F38" }}>
                         {t}
@@ -618,8 +933,7 @@ function ExercisesTab() {
                   <Btn variant="ghost" onClick={() => {
                     setForm({
                       title: selected.title, description: selected.description,
-                      difficulty: selected.difficulty, category: selected.category,
-                      timer_minutes: selected.timer_minutes,
+                      timer_minutes: selected.timer_minutes, tags: selected.tags || "",
                     });
                     setMode("editInfo");
                   }}>Edit</Btn>
@@ -662,6 +976,41 @@ function ExercisesTab() {
                     </span>
                   )}
                 </div>
+              </div>
+
+              {/* ── Algorithm selector ── */}
+              <div style={{ background: C.bg, border: "1px solid " + C.borderLight,
+                borderRadius: 9, padding: "10px 14px", marginTop: 10,
+                display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: C.muted,
+                  textTransform: "uppercase", letterSpacing: 0.8, flexShrink: 0 }}>
+                  Algorithm
+                </span>
+                <select
+                  value={selected.algorithm_id ?? ""}
+                  disabled={changingAlgo}
+                  onChange={async e => {
+                    const newId = e.target.value === "" ? null : parseInt(e.target.value);
+                    setChangingAlgo(true);
+                    await fetch(`/api/admin/exercises/${selected.id}`, {
+                      method: "PATCH",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ algorithm_id: newId }),
+                    });
+                    await pick({ id: selected.id });
+                    setChangingAlgo(false);
+                  }}
+                  style={{ ...inputStyle, marginBottom: 0, flex: 1,
+                    padding: "6px 10px", cursor: changingAlgo ? "wait" : "pointer",
+                    opacity: changingAlgo ? 0.6 : 1 }}>
+                  <option value="">— No algorithm (SHARP default) —</option>
+                  {allAlgorithms.map(a => (
+                    <option key={a.id} value={a.id}>{a.name}</option>
+                  ))}
+                </select>
+                {changingAlgo && (
+                  <span style={{ fontSize: 12, color: C.muted, flexShrink: 0 }}>Saving…</span>
+                )}
               </div>
             </>
           )}
@@ -752,6 +1101,146 @@ function ExercisesTab() {
                 ))
               }
             </div>
+          )}
+
+          <Divider />
+
+          {/* ── Sessions ── */}
+          <div style={{ display: "flex", justifyContent: "space-between",
+            alignItems: "center", marginBottom: 12 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: C.text }}>
+              Sessions ({sessions.length})
+            </div>
+            <button onClick={() => fetchSessions(selected.id)}
+              style={{ fontSize: 11, color: C.muted, background: "none", border: "none",
+                cursor: "pointer", padding: "3px 6px" }}>
+              ↻ Refresh
+            </button>
+          </div>
+
+          {sessionsLoading ? (
+            <div style={{ fontSize: 13, color: C.muted, padding: "12px 0" }}>Loading sessions…</div>
+          ) : sessions.length === 0 ? (
+            <div style={{ fontSize: 13, color: C.muted, fontStyle: "italic", padding: "12px 0" }}>
+              No sessions yet. Sessions are created automatically when the first submission arrives.
+            </div>
+          ) : (
+            sessions.map(sess => {
+              const isEditing = editingSession?.id === sess.id;
+              return (
+                <div key={sess.id} style={{ background: C.card, border: "1px solid " + C.border,
+                  borderRadius: 10, marginBottom: 10, overflow: "hidden" }}>
+
+                  {/* Row header */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 10,
+                    padding: "12px 14px", borderBottom: isEditing ? "1px solid " + C.borderLight : "none" }}>
+
+                    {/* Session number badge */}
+                    <div style={{ width: 28, height: 28, borderRadius: "50%", flexShrink: 0,
+                      background: C.crimsonLight, display: "flex", alignItems: "center",
+                      justifyContent: "center", fontSize: 11, fontWeight: 800, color: C.crimson }}>
+                      #{sess.session_number}
+                    </div>
+
+                    {/* Label + meta */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, fontSize: 13, color: C.text,
+                        display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
+                        {sess.label || `Session ${sess.session_number}`}
+                        <span style={{
+                          fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 20,
+                          background: sess.status === "active" ? C.greenPale : "#F3F4F6",
+                          color: sess.status === "active" ? C.green : C.muted,
+                          border: `1px solid ${sess.status === "active" ? "#A7F3D0" : C.border}`,
+                        }}>
+                          {sess.status === "active" ? "● Active" : "Closed"}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 11, color: C.muted, marginTop: 3,
+                        display: "flex", gap: 12, flexWrap: "wrap" }}>
+                        <span>Started {new Date(sess.started_at).toLocaleDateString("en-IN",
+                          { day: "numeric", month: "short", year: "numeric" })}</span>
+                        <span>{sess.participant_count} participant{sess.participant_count !== 1 ? "s" : ""}</span>
+                        {sess.avg_score != null && <span>Avg score: {sess.avg_score}/10</span>}
+                        <span>Gap: {sess.gap_hours}h</span>
+                      </div>
+                    </div>
+
+                    {/* Actions */}
+                    <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                      {!isEditing && (
+                        <button onClick={() => setEditingSession({ id: sess.id, label: sess.label || "", gap_hours: String(sess.gap_hours) })}
+                          style={{ fontSize: 11, fontWeight: 600, padding: "4px 10px",
+                            borderRadius: 6, border: "1.5px solid " + C.border,
+                            background: "transparent", color: C.textSoft,
+                            cursor: "pointer", fontFamily: "inherit" }}>
+                          Edit
+                        </button>
+                      )}
+                      {sess.status === "active" && !isEditing && (
+                        <button onClick={async () => {
+                          if (!window.confirm("Force-close this session? No more submissions will be grouped into it.")) return;
+                          await fetch(`/api/admin/sessions/${sess.id}`, {
+                            method: "PATCH",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ force_closed: true }),
+                          });
+                          fetchSessions(selected.id);
+                        }}
+                          style={{ fontSize: 11, fontWeight: 600, padding: "4px 10px",
+                            borderRadius: 6, border: "1px solid #FECACA",
+                            background: "#FEE2E2", color: C.red,
+                            cursor: "pointer", fontFamily: "inherit" }}>
+                          Force Close
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Inline edit form */}
+                  {isEditing && (
+                    <div style={{ padding: "12px 14px", background: C.bg }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 130px", gap: 10, marginBottom: 10 }}>
+                        <div>
+                          <Label>Label</Label>
+                          <input value={editingSession.label}
+                            onChange={e => setEditingSession(p => ({ ...p, label: e.target.value }))}
+                            placeholder={`Session ${sess.session_number}`}
+                            style={{ ...inputStyle }} />
+                        </div>
+                        <div>
+                          <Label>Gap Hours</Label>
+                          <input type="number" min="0.5" step="0.5"
+                            value={editingSession.gap_hours}
+                            onChange={e => setEditingSession(p => ({ ...p, gap_hours: e.target.value }))}
+                            style={{ ...inputStyle }} />
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <Btn onClick={async () => {
+                          const body = {};
+                          if (editingSession.label.trim() !== (sess.label || ""))
+                            body.label = editingSession.label.trim();
+                          const newGap = parseFloat(editingSession.gap_hours);
+                          if (!isNaN(newGap) && newGap > 0 && newGap !== parseFloat(sess.gap_hours))
+                            body.gap_hours = newGap;
+                          if (Object.keys(body).length) {
+                            await fetch(`/api/admin/sessions/${sess.id}`, {
+                              method: "PATCH",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify(body),
+                            });
+                          }
+                          setEditingSession(null);
+                          fetchSessions(selected.id);
+                        }}>Save</Btn>
+                        <Btn variant="ghost" onClick={() => setEditingSession(null)}>Cancel</Btn>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })
           )}
         </div>
       )}
@@ -949,29 +1438,64 @@ function InstancesTab() {
 // ─── Settings Tab ─────────────────────────────────────────────────────────────
 
 function SettingsTab() {
-  const [loginEnabled, setLoginEnabled] = useState(null);
-  const [saving, setSaving]             = useState(false);
+  const [loginEnabled,    setLoginEnabled]    = useState(null);
+  const [instanceEnabled, setInstanceEnabled] = useState(null);
+  const [saving, setSaving] = useState(null); // key being saved
 
   useEffect(() => {
     fetch("/api/admin/settings")
       .then(r => r.json())
-      .then(d => setLoginEnabled(d.login_enabled === "true"))
-      .catch(() => setLoginEnabled(true));
+      .then(d => {
+        setLoginEnabled(d.login_enabled === "true");
+        setInstanceEnabled(d.instance_login_enabled !== "false");
+      })
+      .catch(() => { setLoginEnabled(true); setInstanceEnabled(true); });
   }, []);
 
-  const toggle = async () => {
-    setSaving(true);
-    const next = !loginEnabled;
+  const saveSetting = async (key, value, setter) => {
+    setSaving(key);
     await fetch("/api/admin/settings", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ key: "login_enabled", value: String(next) }),
+      body: JSON.stringify({ key, value: String(value) }),
     });
-    setLoginEnabled(next);
-    setSaving(false);
+    setter(value);
+    setSaving(null);
   };
 
   if (loginEnabled === null) return <div style={{ padding: 40, color: C.muted }}>Loading…</div>;
+
+  const ToggleCard = ({ title, description, enabled, settingKey, onToggle }) => (
+    <div style={{ background: C.card, border: "1px solid " + C.border,
+      borderRadius: 12, padding: "20px 22px", marginBottom: 14 }}>
+      <div style={{ display: "flex", justifyContent: "space-between",
+        alignItems: "flex-start", gap: 16 }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontWeight: 700, fontSize: 15, color: C.text, marginBottom: 5 }}>
+            {title}
+          </div>
+          <div style={{ fontSize: 13, color: C.muted, lineHeight: 1.55 }}>
+            {description}
+          </div>
+        </div>
+        <button onClick={onToggle} disabled={saving === settingKey}
+          style={{ padding: "9px 22px", borderRadius: 8, border: "none",
+            background: enabled ? C.green : C.red,
+            color: "#fff", fontWeight: 700, fontSize: 14,
+            cursor: saving === settingKey ? "not-allowed" : "pointer",
+            opacity: saving === settingKey ? 0.7 : 1, fontFamily: "inherit",
+            flexShrink: 0, minWidth: 70 }}>
+          {saving === settingKey ? "…" : enabled ? "ON" : "OFF"}
+        </button>
+      </div>
+      <div style={{ marginTop: 16, padding: "10px 14px", borderRadius: 8,
+        background: enabled ? C.greenPale : C.crimsonPale,
+        border: "1px solid " + (enabled ? "#A7F3D0" : C.crimsonBorder),
+        fontSize: 12, color: enabled ? C.green : C.crimson, fontWeight: 600 }}>
+        {enabled ? `✓ ${title} is currently enabled` : `✕ ${title} is currently disabled`}
+      </div>
+    </div>
+  );
 
   return (
     <div style={{ padding: "28px 24px", maxWidth: 520 }}>
@@ -981,40 +1505,25 @@ function SettingsTab() {
         Manage global settings for the app.
       </p>
 
-      <div style={{ background: C.card, border: "1px solid " + C.border,
-        borderRadius: 12, padding: "20px 22px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between",
-          alignItems: "flex-start", gap: 16 }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 700, fontSize: 15, color: C.text, marginBottom: 5 }}>
-              Login
-            </div>
-            <div style={{ fontSize: 13, color: C.muted, lineHeight: 1.55 }}>
-              {loginEnabled
-                ? "Users can register with name + email and complete exercises."
-                : "Login is OFF — users can only enter their email to view existing results. No new registrations or exercise submissions."}
-            </div>
-          </div>
-          <button onClick={toggle} disabled={saving}
-            style={{ padding: "9px 22px", borderRadius: 8, border: "none",
-              background: loginEnabled ? C.green : C.red,
-              color: "#fff", fontWeight: 700, fontSize: 14,
-              cursor: saving ? "not-allowed" : "pointer",
-              opacity: saving ? 0.7 : 1, fontFamily: "inherit",
-              flexShrink: 0, minWidth: 70 }}>
-            {saving ? "…" : loginEnabled ? "ON" : "OFF"}
-          </button>
-        </div>
+      <ToggleCard
+        title="Login"
+        settingKey="login_enabled"
+        enabled={loginEnabled}
+        description={loginEnabled
+          ? "Users can register with name + email and complete exercises."
+          : "Login is OFF — users can only enter their email to view existing results. No new registrations or exercise submissions."}
+        onToggle={() => saveSetting("login_enabled", !loginEnabled, setLoginEnabled)}
+      />
 
-        <div style={{ marginTop: 16, padding: "10px 14px", borderRadius: 8,
-          background: loginEnabled ? C.greenPale : C.crimsonPale,
-          border: "1px solid " + (loginEnabled ? "#A7F3D0" : C.crimsonBorder),
-          fontSize: 12, color: loginEnabled ? C.green : C.crimson, fontWeight: 600 }}>
-          {loginEnabled
-            ? "✓ Login is currently enabled — users can register and take exercises"
-            : "✕ Login is currently disabled — only existing users can view results"}
-        </div>
-      </div>
+      <ToggleCard
+        title="Parallel Instance (Team Login)"
+        settingKey="instance_login_enabled"
+        enabled={instanceEnabled}
+        description={instanceEnabled
+          ? "The 'Join as a team' PIN option is visible on the login page."
+          : "The 'Join as a team' PIN option is hidden from the login page."}
+        onToggle={() => saveSetting("instance_login_enabled", !instanceEnabled, setInstanceEnabled)}
+      />
     </div>
   );
 }
@@ -1031,11 +1540,12 @@ export default function AdminPanel() {
   };
 
   const tabs = [
-    { key: "users",     label: "Users",     icon: "👥" },
-    { key: "exercises", label: "Exercises", icon: "📁" },
-    { key: "scenarios", label: "Scenarios", icon: "📋" },
-    { key: "instances", label: "Instances", icon: "🔒" },
-    { key: "settings",  label: "Settings",  icon: "⚙️" },
+    { key: "users",      label: "Users",      icon: "👥" },
+    { key: "exercises",  label: "Exercises",  icon: "📁" },
+    { key: "scenarios",  label: "Scenarios",  icon: "📋" },
+    { key: "algorithms", label: "Algorithms", icon: "🧠" },
+    { key: "instances",  label: "Instances",  icon: "🔒" },
+    { key: "settings",   label: "Settings",   icon: "⚙️" },
   ];
 
   return (
@@ -1083,11 +1593,12 @@ export default function AdminPanel() {
 
       {/* Content */}
       <main style={{ background: C.bg }}>
-        {tab === "users"     && <UsersTab />}
-        {tab === "exercises" && <ExercisesTab />}
-        {tab === "scenarios" && <ScenariosTab />}
-        {tab === "instances" && <InstancesTab />}
-        {tab === "settings"  && <SettingsTab />}
+        {tab === "users"      && <UsersTab />}
+        {tab === "exercises"  && <ExercisesTab />}
+        {tab === "scenarios"  && <ScenariosTab />}
+        {tab === "algorithms" && <AlgorithmsTab />}
+        {tab === "instances"  && <InstancesTab />}
+        {tab === "settings"   && <SettingsTab />}
       </main>
     </div>
   );

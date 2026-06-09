@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import sql, { initSettingsDb } from "../../../lib/db";
 
 // Keys the moderator panel is allowed to read/write without admin auth
-const ALLOWED_KEYS = ["login_enabled", "default_exercise_id"];
+const ALLOWED_KEYS = ["login_enabled", "default_exercise_id", "instance_login_enabled"];
 
 export async function GET() {
   await initSettingsDb();
@@ -10,8 +10,9 @@ export async function GET() {
   const map = {};
   for (const r of rows) map[r.key] = r.value;
   return NextResponse.json({
-    login_enabled:       map.login_enabled !== "false",
-    default_exercise_id: map.default_exercise_id || null,
+    login_enabled:          map.login_enabled !== "false",
+    default_exercise_id:    map.default_exercise_id || null,
+    instance_login_enabled: map.instance_login_enabled !== "false",
   });
 }
 

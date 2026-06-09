@@ -633,146 +633,171 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
   // ═══════════════════════════════════════════════════════════════════════════
   // 2. EXERCISE START PAGE
   // ═══════════════════════════════════════════════════════════════════════════
-  const StartScreen = () => (
-    <div style={{minHeight:"100vh", background:C.bg}}>
-      <TopNav userName={userName} userEmail={userEmail} onLogout={doLogout} />
+  const StartScreen = () => {
+    const SvgTarget = () => (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
+        stroke={C.crimson} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>
+      </svg>
+    );
+    const SvgClipboard = () => (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
+        stroke={C.crimson} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
+        <rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>
+        <line x1="8" y1="12" x2="16" y2="12"/><line x1="8" y1="16" x2="16" y2="16"/>
+      </svg>
+    );
+    const SvgLock = ({ color="#fff", size=20 }) => (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+        stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+        <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+      </svg>
+    );
+    const SvgPeople = () => (
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none"
+        stroke="rgba(255,255,255,0.9)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+        <circle cx="9" cy="7" r="4"/>
+        <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+      </svg>
+    );
+    const SvgClock = () => (
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none"
+        stroke="rgba(255,255,255,0.9)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+      </svg>
+    );
+    const SvgPerson = () => (
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none"
+        stroke="rgba(255,255,255,0.9)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+      </svg>
+    );
 
-      <div style={{maxWidth:520, margin:"0 auto", padding:"20px 16px 48px"}}>
+    const statItems = [
+      { icon: <SvgPeople/>, label: `${total} Scenario${total!==1?"s":""}` },
+      { icon: <SvgClock/>,  label: activeExercise.timer_minutes > 0 ? `${activeExercise.timer_minutes} min` : "No limit" },
+      { icon: <SvgPerson/>, label: "Solo" },
+    ];
 
-        {/* ── Hero card ── */}
-        <div style={{
-          background:C.crimsonDark, borderRadius:20,
-          padding:"28px 24px 24px", marginBottom:14,
-        }}>
-          <div style={{
-            fontSize:11, fontWeight:700, color:"#D4908A",
-            letterSpacing:2.5, textTransform:"uppercase", marginBottom:10,
-          }}>
-            {(activeExercise.category || "Clear Articulation").toUpperCase()}
+    const instructions = [
+      "All context is provided. Do not make assumptions beyond what's given.",
+      ...(activeExercise.timer_minutes > 0
+        ? ["Timed activity — responses auto-submit when the timer ends."]
+        : []),
+      "Scores and feedback unlock after all scenarios are submitted.",
+    ];
+
+    return (
+      <div style={{minHeight:"100vh", background:C.bg}}>
+        <TopNav userName={userName} userEmail={userEmail} onLogout={doLogout} />
+
+        <div style={{maxWidth:520, margin:"0 auto", padding:"20px 16px 48px"}}>
+
+          {/* ── Hero card ── */}
+          <div style={{background:C.crimsonDark, borderRadius:20, padding:"28px 24px 26px", marginBottom:14}}>
+            <div style={{fontSize:11, fontWeight:700, color:"#D4908A",
+              letterSpacing:2.5, textTransform:"uppercase", marginBottom:10}}>
+              {(activeExercise.category || "Clear Articulation").toUpperCase()}
+            </div>
+            <h1 style={{fontSize:42, fontWeight:800, color:"#fff",
+              fontFamily:"Georgia,serif", margin:"0 0 16px", lineHeight:1.08}}>
+              {activeExercise.title}
+            </h1>
+            {activeExercise.description && (
+              <p style={{fontSize:15, color:"rgba(255,255,255,0.85)",
+                margin:"0 0 24px", lineHeight:1.75}}>
+                {activeExercise.description}
+              </p>
+            )}
+            <div style={{display:"inline-flex", alignItems:"center",
+              background:"rgba(201, 58, 58, 0.18)", borderRadius:99, padding:"10px 20px"}}>
+              {statItems.map((item, i) => (
+                <div key={i} style={{display:"flex", alignItems:"center"}}>
+                  {i > 0 && <span style={{color:"rgba(255,255,255,0.2)", margin:"0 14px", fontSize:15}}>|</span>}
+                  <span style={{color:"rgba(255,255,255,0.92)", fontSize:13, fontWeight:500,
+                    display:"flex", alignItems:"center", gap:7}}>
+                    {item.icon}{item.label}
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
-          <h1 style={{
-            fontSize:36, fontWeight:800, color:"#fff",
-            fontFamily:"Georgia,serif", margin:"0 0 14px", lineHeight:1.1,
-          }}>
-            {activeExercise.title}
-          </h1>
-          {activeExercise.description && (
-            <p style={{
-              fontSize:14, color:"rgba(255,255,255,0.82)",
-              margin:"0 0 22px", lineHeight:1.7,
-            }}>
-              {activeExercise.description}
-            </p>
-          )}
-          {/* Stats pill */}
-          <div style={{
-            display:"inline-flex", alignItems:"center",
-            background:"rgba(0,0,0,0.28)", borderRadius:99,
-            padding:"11px 20px",
-          }}>
-            {[
-              {icon:"👥", label:`${total} Scenario${total!==1?"s":""}`},
-              {icon:"⏱", label:activeExercise.timer_minutes > 0 ? `${activeExercise.timer_minutes} min` : "No limit"},
-              {icon:"👤", label:"Solo"},
-            ].map((item,i)=>(
-              <div key={i} style={{display:"flex", alignItems:"center"}}>
-                {i>0 && <span style={{color:"rgba(255,255,255,0.25)", margin:"0 14px", fontSize:16}}>|</span>}
-                <span style={{color:"#fff", fontSize:13, fontWeight:600, display:"flex", alignItems:"center", gap:5}}>
-                  {item.icon} {item.label}
-                </span>
+
+          {/* ── Info card ── */}
+          <div style={{background:C.card, borderRadius:16, border:"1px solid "+C.border,
+            padding:"22px 20px", marginBottom:12, boxShadow:"0 2px 10px rgba(0,0,0,0.05)"}}>
+
+            {/* The Task */}
+            <div style={{display:"flex", alignItems:"center", gap:12, marginBottom:16}}>
+              <div style={{width:40, height:40, borderRadius:"50%", background:C.crimsonPale,
+                display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0}}>
+                <SvgTarget/>
               </div>
-            ))}
+              <span style={{fontSize:13, fontWeight:800, color:C.text,
+                letterSpacing:1.5, textTransform:"uppercase"}}>
+                The Task
+              </span>
+            </div>
+            <p style={{fontSize:15, color:C.text, lineHeight:1.8, margin:"0 0 22px", paddingLeft:52}}>
+              You'll be shown a situation and the context around it. Read the situation carefully,
+              then write the clearest response you can — one that communicates the core point
+              directly and specifically.
+            </p>
+
+            <hr style={{border:"none", borderTop:"1px solid "+C.border, margin:"0 0 22px"}}/>
+
+            {/* Instructions */}
+            <div style={{display:"flex", alignItems:"center", gap:12, marginBottom:16}}>
+              <div style={{width:40, height:40, borderRadius:"50%", background:C.crimsonPale,
+                display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0}}>
+                <SvgClipboard/>
+              </div>
+              <span style={{fontSize:13, fontWeight:800, color:C.text,
+                letterSpacing:1.5, textTransform:"uppercase"}}>
+                Instructions
+              </span>
+            </div>
+            <ul style={{margin:0, padding:"0 0 0 52px", listStyle:"none"}}>
+              {instructions.map((item, i) => (
+                <li key={i} style={{display:"flex", alignItems:"flex-start", gap:11,
+                  marginBottom: i < instructions.length-1 ? 14 : 0,
+                  fontSize:15, color:C.text, lineHeight:1.65}}>
+                  <span style={{width:8, height:8, borderRadius:"50%", background:C.text,
+                    flexShrink:0, marginTop:7}}/>
+                  {item}
+                </li>
+              ))}
+            </ul>
           </div>
-        </div>
 
-        {/* ── Info card ── */}
-        <div style={{
-          background:C.card, borderRadius:16,
-          border:"1px solid "+C.border,
-          padding:"22px 20px", marginBottom:12,
-          boxShadow:"0 2px 10px rgba(0,0,0,0.05)",
-        }}>
-          {/* The Task */}
-          <div style={{display:"flex", alignItems:"center", gap:12, marginBottom:14}}>
-            <div style={{
-              width:44, height:44, borderRadius:"50%",
-              background:C.crimsonPale, display:"flex",
-              alignItems:"center", justifyContent:"center",
-              fontSize:20, flexShrink:0,
-            }}>🎯</div>
-            <span style={{fontSize:12, fontWeight:800, color:C.crimson, letterSpacing:1.8, textTransform:"uppercase"}}>
-              The Task
-            </span>
+          {/* ── Lock notice ── */}
+          <div style={{display:"flex", alignItems:"center", gap:14,
+            background:C.crimsonPale, border:"1px solid "+C.crimsonBorder,
+            borderRadius:12, padding:"14px 18px", marginBottom:24}}>
+            <div style={{width:40, height:40, borderRadius:"50%", background:C.crimson,
+              display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0}}>
+              <SvgLock color="#fff" size={20}/>
+            </div>
+            <p style={{fontSize:13, color:C.textSoft, margin:0, lineHeight:1.6}}>
+              <strong style={{color:C.crimson}}>Scores and community responses</strong>{" "}
+              unlock after exercise submission.
+            </p>
           </div>
-          <p style={{fontSize:14, color:C.text, lineHeight:1.8, margin:"0 0 22px"}}>
-            You'll be shown a situation and the context around it. Read the situation carefully,
-            then write the clearest response you can — one that communicates the core point
-            directly and specifically.
-          </p>
 
-          <hr style={{border:"none", borderTop:"1px solid "+C.border, margin:"0 0 22px"}} />
-
-          {/* Instructions */}
-          <div style={{display:"flex", alignItems:"center", gap:12, marginBottom:14}}>
-            <div style={{
-              width:44, height:44, borderRadius:"50%",
-              background:C.crimsonPale, display:"flex",
-              alignItems:"center", justifyContent:"center",
-              fontSize:20, flexShrink:0,
-            }}>📋</div>
-            <span style={{fontSize:12, fontWeight:800, color:C.crimson, letterSpacing:1.8, textTransform:"uppercase"}}>
-              Instructions
-            </span>
-          </div>
-          <ul style={{margin:0, padding:0, listStyle:"none"}}>
-            {[
-              "All context is provided. Do not make assumptions beyond what's given.",
-              ...(activeExercise.timer_minutes > 0
-                ? ["Timed activity — responses auto-submit when the timer ends."]
-                : []),
-              "Scores and feedback unlock after all scenarios are submitted.",
-            ].map((item,i,arr)=>(
-              <li key={i} style={{
-                display:"flex", alignItems:"flex-start", gap:10,
-                marginBottom:i < arr.length-1 ? 12 : 0,
-                fontSize:14, color:C.text, lineHeight:1.65,
-              }}>
-                <span style={{
-                  width:7, height:7, borderRadius:"50%", background:C.text,
-                  flexShrink:0, marginTop:6,
-                }}/>
-                {item}
-              </li>
-            ))}
-          </ul>
+          {/* ── Start button ── */}
+          <button onClick={()=>setScreen("answering")}
+            style={{width:"100%", padding:"15px", background:C.crimson,
+              color:"#fff", border:"none", borderRadius:12, fontSize:15,
+              fontWeight:700, cursor:"pointer", fontFamily:"inherit", letterSpacing:0.3}}>
+            Start Exercise →
+          </button>
         </div>
-
-        {/* ── Lock notice ── */}
-        <div style={{
-          display:"flex", alignItems:"center", gap:13,
-          background:C.crimsonPale, border:"1px solid "+C.crimsonBorder,
-          borderRadius:12, padding:"14px 18px", marginBottom:24,
-        }}>
-          <span style={{fontSize:22, flexShrink:0}}>🔒</span>
-          <p style={{fontSize:13, color:C.textSoft, margin:0, lineHeight:1.6}}>
-            <strong style={{color:C.crimson}}>Scores and community responses</strong>{" "}
-            unlock after exercise submission.
-          </p>
-        </div>
-
-        {/* ── Start button ── */}
-        <button onClick={()=>setScreen("answering")}
-          style={{
-            width:"100%", padding:"15px",
-            background:C.crimson, color:"#fff", border:"none",
-            borderRadius:12, fontSize:15, fontWeight:700,
-            cursor:"pointer", fontFamily:"inherit", letterSpacing:0.3,
-          }}>
-          Start Exercise →
-        </button>
       </div>
-    </div>
-  );
+    );
+  };
 
   // ═══════════════════════════════════════════════════════════════════════════
   // 3. ANSWERING SCREEN

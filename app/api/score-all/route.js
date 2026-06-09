@@ -28,12 +28,12 @@ const SHARP_CONTEXTS = {
   },
   "Show Rec.": {
     exerciseTitle: "Articulation-01",
-    scenarioText: `Your friend texts: "Should I watch that crime show you just finished? I have one evening free."`,
+    scenarioText: `Your friend texts: "Should I watch that thriller series you just finished? I have one evening free."`,
     contextBullets:
       "- 6 episodes. Eps 1–4: gripping, watched all four in one sitting\n" +
       "- Eps 5–6: romance subplot takes over, tension drops significantly\n" +
       "- Finale reveal satisfying but last 20 min feel rushed\n" +
-      "- Friend likes crime shows, hates shows that drag",
+      "- Friend likes thriller series, hates shows that drag",
     communicationGoal:
       "Give a clear yes/no recommendation with specific episode-level evidence so the friend can decide whether to commit their one free evening.",
     listenerContext:
@@ -101,12 +101,47 @@ function buildGenericContext(meta, exerciseTitle) {
 
 export async function POST(request) {
   try {
-    const { answers, email, name, instance_id, exercise_id, exerciseTitle, scenarios } =
+    const { answers, email, name, instance_id, exercise_id, exerciseTitle, scenarios: clientScenarios } =
       await request.json()
 
     if (!answers || typeof answers !== "object") {
       return NextResponse.json({ error: "Missing answers" }, { status: 400 })
     }
+
+    // Fetch authoritative scenarios + algorithm from DB — never trust client-sent scenario data.
+    let dbScenarios = null
+    let algorithm   = null
+    if (exercise_id) {
+      try {
+        await initDb()
+        const [scenarioRows, algoRows] = await Promise.all([
+          sql`
+            SELECT s.short_title, s.prompt, s.context
+            FROM scenarios s
+            JOIN exercise_scenarios es ON es.scenario_id = s.id
+            WHERE es.exercise_id = ${parseInt(exercise_id)}
+            ORDER BY es.order_index
+          `,
+          sql`
+            SELECT a.base_prompt, a.dimension_weights, a.name
+            FROM algorithms a
+            JOIN exercises e ON e.algorithm_id = a.id
+            WHERE e.id = ${parseInt(exercise_id)}
+            LIMIT 1
+          `,
+        ])
+        if (scenarioRows.length > 0) dbScenarios = scenarioRows
+        if (algoRows.length > 0)     algorithm   = algoRows[0]
+      } catch (dbErr) {
+        console.warn("[score-all] Could not fetch from DB, falling back to defaults:", dbErr?.message)
+      }
+    }
+
+    // Resolved algorithm values — null means use hardcoded SHARP defaults
+    const customBasePrompt = algorithm?.base_prompt?.trim() || null
+    const algoWeights      = algorithm?.dimension_weights && Object.keys(algorithm.dimension_weights).length > 0
+      ? algorithm.dimension_weights
+      : null
 
     // Score all non-empty answers in parallel
     const entries = Object.entries(answers).filter(
@@ -115,13 +150,23 @@ export async function POST(request) {
 
     const scoringPromises = entries.map(async ([pos, userResponse]) => {
       const position = parseInt(pos) - 1 // 0-indexed position into scenarios array
-      const meta = scenarios?.[position]  // {shortTitle, text, ctx}
-      const context =
-        SHARP_CONTEXTS[meta?.shortTitle] ||
-        buildGenericContext(meta, exerciseTitle)
+
+      // Build context from DB scenarios (or client fallback)
+      let context
+      if (dbScenarios?.[position]) {
+        const row  = dbScenarios[position]
+        const meta = { shortTitle: row.short_title, text: row.prompt, ctx: Array.isArray(row.context) ? row.context : [] }
+        context    = SHARP_CONTEXTS[meta.shortTitle] || buildGenericContext(meta, exerciseTitle)
+      } else {
+        const meta = clientScenarios?.[position]
+        context    = SHARP_CONTEXTS[meta?.shortTitle] || buildGenericContext(meta, exerciseTitle)
+      }
+
+      // Override weights if algorithm has custom ones
+      if (algoWeights) context = { ...context, dimensionsWeights: algoWeights }
 
       try {
-        const result = await sharpEngine(userResponse, context)
+        const result = await sharpEngine(userResponse, context, customBasePrompt)
         return [pos, result]
       } catch (err) {
         console.error(`[score-all] scenario pos ${pos} failed:`, err?.status ?? "", err?.message, err?.error ? JSON.stringify(err.error) : "")

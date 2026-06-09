@@ -35,14 +35,14 @@ export async function GET(request) {
   // Look up by (email, exercise_id) when exercise_id is provided
   const rows = exId
     ? await sql`
-        SELECT s.name, s.answers, s.sharp_results, s.instance_id, i.name AS instance_name
+        SELECT s.name, s.answers, s.sharp_results, s.instance_id, s.session_id, i.name AS instance_name
         FROM submissions s
         LEFT JOIN instances i ON s.instance_id = i.id
         WHERE s.email = ${email} AND s.exercise_id = ${exId}
         LIMIT 1
       `
     : await sql`
-        SELECT s.name, s.answers, s.sharp_results, s.instance_id, i.name AS instance_name
+        SELECT s.name, s.answers, s.sharp_results, s.instance_id, s.session_id, i.name AS instance_name
         FROM submissions s
         LEFT JOIN instances i ON s.instance_id = i.id
         WHERE s.email = ${email}
@@ -57,6 +57,7 @@ export async function GET(request) {
     answers:       rows[0].answers,
     sharp_results: rows[0].sharp_results || null,
     instance_id:   rows[0].instance_id,
+    session_id:    rows[0].session_id || null,
     instance_name: rows[0].instance_name,
   });
 }

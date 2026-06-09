@@ -4,8 +4,13 @@ import sql, { initAdminDb } from "../../../../../lib/db";
 export async function GET(_, { params }) {
   await initAdminDb();
   const { id } = await params;
-  const [exercise] = await sql`SELECT * FROM exercises WHERE id = ${id}`;
-  if (!exercise) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const rows = await sql`
+    SELECT e.*, a.name AS algorithm_name
+    FROM exercises e
+    LEFT JOIN algorithms a ON e.algorithm_id = a.id
+    WHERE e.id = ${id}
+  `;
+  if (!rows[0]) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const scenarios = await sql`
     SELECT s.* FROM scenarios s
@@ -13,7 +18,7 @@ export async function GET(_, { params }) {
     WHERE es.exercise_id = ${id}
     ORDER BY es.order_index
   `;
-  return NextResponse.json({ ...exercise, scenarios });
+  return NextResponse.json({ ...rows[0], scenarios });
 }
 
 export async function PUT(req, { params }) {
@@ -23,12 +28,25 @@ export async function PUT(req, { params }) {
   const [exercise] = await sql`
     UPDATE exercises
     SET title = ${body.title}, description = ${body.description},
-        difficulty = ${body.difficulty}, category = ${body.category},
-        timer_minutes = ${body.timer_minutes}
+        timer_minutes = ${body.timer_minutes}, tags = ${body.tags || ""}
     WHERE id = ${id}
     RETURNING *
   `;
   return NextResponse.json(exercise);
+}
+
+export async function PATCH(req, { params }) {
+  const body = await req.json();
+  await initAdminDb();
+  const { id } = await params;
+  if (body.algorithm_id !== undefined) {
+    const algoId = body.algorithm_id === null ? null : parseInt(body.algorithm_id);
+    const [exercise] = await sql`
+      UPDATE exercises SET algorithm_id = ${algoId} WHERE id = ${id} RETURNING *
+    `;
+    return NextResponse.json(exercise);
+  }
+  return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
 }
 
 export async function DELETE(_, { params }) {
