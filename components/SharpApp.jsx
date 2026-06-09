@@ -540,8 +540,10 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
       <div style={{flex:1, display:"flex", flexDirection:"column",
         alignItems:"center", justifyContent:"center", padding:"24px 20px"}}>
 
-      <div style={{textAlign:"center", marginBottom:28}}>
-        <div style={{fontSize:13, color:C.muted}}>Communication Skills Practice</div>
+      <div style={{textAlign:"center", marginBottom:36}}>
+        <div style={{fontSize:38, fontWeight:800, color:C.crimson,
+          fontFamily:"Georgia,serif", letterSpacing:1, marginBottom:5}}>SHARP</div>
+        <div style={{fontSize:14, color:C.muted}}>Communication Skills Practice</div>
       </div>
 
       <div style={{background:C.card, borderRadius:16, padding:"32px 28px",
