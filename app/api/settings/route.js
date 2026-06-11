@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import sql, { initSettingsDb } from "../../../lib/db";
 
+export const dynamic = "force-dynamic";
+
 // Keys the moderator panel is allowed to read/write without admin auth
 const ALLOWED_KEYS = ["login_enabled", "default_exercise_id", "instance_login_enabled"];
 

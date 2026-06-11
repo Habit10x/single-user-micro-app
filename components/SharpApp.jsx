@@ -65,26 +65,7 @@ const DEFAULT_SCENARIOS = [
 ];
 
 // Community answers — own:true entries shown separately, NOT in the scrollable list
-const COMMUNITY = [
-  { id:1, sid:1, name:"Priya N.",  init:"PN", own:false, score:9,
-    answer:"Horizon is on track for Friday. 4 of 6 emails done — legal review on Email 3 resolved. One urgent item: design team needs to decide on header format by Tuesday or we slip 3 days.",
-    ih:"Every required element, tight sequence.", iw:"Status first, specific count, resolved item cleaned up, risk named with deadline and consequence.", ii:"Nothing — this is what 9/10 looks like." },
-  { id:2, sid:1, name:"Marcus T.", init:"MT", own:false, score:5,
-    answer:"Project's going well — nearly done with the emails. Had a small delay with legal but that's sorted. Should be done by Friday assuming the design team gets back to us.",
-    ih:"The risk is buried in a conditional at the end.", iw:"Status is broadly communicated.", ii:"'Assuming the design team gets back to us' is the entire risk in disguise. Name it explicitly." },
-  { id:3, sid:1, name:"You",       init:"Yo", own:true,  score:8,
-    answer:"The Horizon project is on track for next Friday. We've completed 4 of 6 emails — Email 3 needed an extra legal review but that's resolved. One open item: design team needs to decide on header format by Tuesday or we risk a 3-day delay.",
-    ih:"Strong — risk sequencing is the one fix.", iw:"Opened with status. Specific count. Resolved delay handled efficiently in one clause.", ii:"Move the design risk directly after status. Resolved issues are past — open risks are now." },
-  { id:4, sid:1, name:"Arun K.",   init:"AK", own:false, score:9,
-    answer:"On track for next Friday. 4 emails complete, one legal review resolved. Design team needs to confirm header format by Tuesday — if not, we slip 3 days.",
-    ih:"Tightest version in the group.", iw:"Every sentence is load-bearing. Status → resolved → live risk with consequence.", ii:"Nothing — this is the target." },
-  { id:5, sid:2, name:"Fatima R.", init:"FR", own:false, score:9,
-    answer:"Watch it — but go in knowing it's two different shows. Eps 1–4 are gripping; I did all four in one sitting. Eps 5–6 slow right down when romance takes over. The finale reveal lands but the last 20 min rush. Given you hate shows that drag — stick through the dip.",
-    ih:"Leads with recommendation, sets expectation, uses specific detail.", iw:"The 'two different shows' framing prepares the friend perfectly.", ii:"Nothing." },
-  { id:6, sid:2, name:"You",       init:"Yo", own:true,  score:5,
-    answer:"Yes definitely watch it! It's really good and I think you'll enjoy it. The story is interesting and the characters are well developed. Some parts are slow but overall it's worth it I think.",
-    ih:"Recommendation is clear but evidence is generic.", iw:"Led with yes — correct.", ii:"'Interesting story' says nothing. Use specifics: 4 eps in one sitting, then a dip, then a satisfying ending." },
-];
+const COMMUNITY = [];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const scoreBg  = s => s>=8?C.greenPale  : s>=6?C.amberPale  : C.crimsonPale;
@@ -153,7 +134,7 @@ function mapDbScenario(s) {
     full:    s.full_title,
     text:    s.prompt,
     ctx:     Array.isArray(s.context) ? s.context : [],
-    score:   s.score ?? 7,
+    score:   s.score ?? null,
     pf:      s.point_first ?? true,
     headline: s.headline    || "",
     worked:   s.what_worked || "",
@@ -170,17 +151,22 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
 
   const [q,           setQ]           = useState(1);
   const [texts,       setTexts]       = useState({});
-  const [fbOpen,      setFbOpen]      = useState(null);
+  const [fbOpen,         setFbOpen]         = useState(null);
+  const [fbReturnScreen, setFbReturnScreen] = useState("results");
+  const [otherFb,        setOtherFb]        = useState(null); // { name, result, answer }
   const [insightOpen, setInsightOpen] = useState(null);
   const [commSc,      setCommSc]      = useState(1);
   const [sortBy,      setSortBy]      = useState("best");
   const [userEmail,   setUserEmail]   = useState("");
   const [userAnswers, setUserAnswers] = useState(null); // answers from DB for returning users
   const [loginLoading,setLoginLoading]= useState(false);
-  const [loginEnabled,setLoginEnabled]= useState(true);
+  const [loginEnabled,setLoginEnabled]         = useState(true);
+  const [instanceLoginEnabled,setInstanceLoginEnabled] = useState(true);
   const [submitting,  setSubmitting]  = useState(false);
   const [sharpResults,setSharpResults]= useState({});
   const [timeLeft,    setTimeLeft]    = useState(null);
+  const [resultsFbOpen,  setResultsFbOpen]  = useState(false);
+  const [resultsScOpen,  setResultsScOpen]  = useState(false);
 
   const textsRef    = useRef({});
   const doSubmitRef = useRef(null);
@@ -200,7 +186,10 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
   useEffect(()=>{
     fetch("/api/settings")
       .then(r=>r.json())
-      .then(d=>setLoginEnabled(d.login_enabled!==false))
+      .then(d=>{
+        setLoginEnabled(d.login_enabled!==false);
+        setInstanceLoginEnabled(d.instance_login_enabled!==false);
+      })
       .catch(()=>{});
   },[]);
 
@@ -225,7 +214,7 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
 
   // Returns the SHARP score (1-10) for a scenario by its position index (1-based), falling back to hardcoded
   const sharpScore   = (pos) => sharpResults[pos]?.score ?? null;
-  const displayScore = (pos) => sharpScore(pos) ?? activeScenarios[pos-1]?.score ?? 0;
+  const displayScore = (pos) => sharpScore(pos) ?? 0;
   const overall = (activeScenarios.reduce((a,_,i)=>a+displayScore(i+1),0)/total).toFixed(1);
 
   // commSc is a 1-based scenario position within the exercise
@@ -235,10 +224,9 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
   // Use real DB answer if available, otherwise fall back to hardcoded sample
   const myAns = userAnswers?.[commSc] || userAnswers?.[String(commSc)]
     ? { id: 0, sid: commSc, name: userName, init: userName?.[0]?.toUpperCase()||"Y",
-        own: true, score: null,
-        answer: userAnswers[commSc] || userAnswers[String(commSc)],
-        ih: null, iw: null, ii: null }
-    : COMMUNITY.find(a=>a.sid===commSc && a.own);
+        own: true, score: sharpResults[commSc]?.score ?? sharpResults[String(commSc)]?.score ?? null,
+        answer: userAnswers[commSc] || userAnswers[String(commSc)] }
+    : null;
   const othersSorted = [...othersForSc].sort((a,b)=>
     sortBy==="best" ? b.score-a.score : a.id-b.id
   );
@@ -265,6 +253,7 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
         setUserEmail(emailVal.trim().toLowerCase());
         setUserAnswers(data.answers);
         if (data.sharp_results) setSharpResults(data.sharp_results);
+        if (activeExercise.id) fetchCommunityData({ exerciseId: activeExercise.id });
         setScreen("results");
       } else if (!loginEnabled) {
         setLoginErr("No account found. New registrations are currently disabled.");
@@ -299,7 +288,8 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
         }),
       });
       setUserAnswers(answers);
-      if (instanceId) await fetchCommunityData(instanceId);
+      if (instanceId) await fetchCommunityData({ instanceId });
+      else if (activeExercise.id) await fetchCommunityData({ exerciseId: activeExercise.id });
       const scoreRes = await fetch("/api/score-all", {
         method:"POST", headers:{"Content-Type":"application/json"},
         body: JSON.stringify({
@@ -358,10 +348,11 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
     setTimeLeft(null);
   };
 
-  const fetchCommunityData = async (instId) => {
+  const fetchCommunityData = async ({ instanceId, exerciseId }) => {
     try {
-      const res  = await fetch(`/api/community?instance_id=${instId}`);
-      const data = await res.json();
+      const param = instanceId ? `instance_id=${instanceId}` : `exercise_id=${exerciseId}`;
+      const res   = await fetch(`/api/community?${param}`);
+      const data  = await res.json();
       setCommunityData(data.submissions || []);
     } catch {}
   };
@@ -398,7 +389,7 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
       if (checkData.submitted) {
         setUserAnswers(checkData.answers);
         if (checkData.sharp_results) setSharpResults(checkData.sharp_results);
-        await fetchCommunityData(data.id);
+        await fetchCommunityData({ instanceId: data.id });
         setScreen("results");
       } else {
         setScreen("start");
@@ -411,7 +402,7 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
   };
 
   const DemoNav = () => {
-    const screens = ["results","community","feedback","insight"];
+    const screens = ["results","community"];
     return (
       <div style={{background:"#111", padding:"10px 20px",
         display:"flex", gap:7, justifyContent:"center",
@@ -541,9 +532,19 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
         alignItems:"center", justifyContent:"center", padding:"24px 20px"}}>
 
       <div style={{textAlign:"center", marginBottom:36}}>
-        <div style={{fontSize:38, fontWeight:800, color:C.crimson,
-          fontFamily:"Georgia,serif", letterSpacing:1, marginBottom:5}}>SHARP</div>
-        <div style={{fontSize:14, color:C.muted}}>Communication Skills Practice</div>
+        <div style={{fontSize:11, fontWeight:700, color:C.muted,
+          letterSpacing:3, textTransform:"uppercase", marginBottom:10}}>
+          By Habit10x
+        </div>
+        <div style={{fontSize:42, fontWeight:800, color:C.crimson,
+          fontFamily:"Georgia,serif", lineHeight:1.1, marginBottom:12}}>
+          Speak Sharp Club
+        </div>
+        <p style={{fontSize:14, color:C.textSoft, margin:"0 auto", lineHeight:1.7, maxWidth:320, textAlign:"center"}}>
+          A global community to practice real conversations,{" "}
+          <strong style={{color:C.text}}>speak with impact</strong>,
+          {" "}get feedback, and grow every day.
+        </p>
       </div>
 
       <div style={{background:C.card, borderRadius:16, padding:"32px 28px",
@@ -617,6 +618,7 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
           </p>
         )}
 
+        {instanceLoginEnabled && (
         <div style={{marginTop:20, paddingTop:18,
           borderTop:"1px solid "+C.borderLight, textAlign:"center"}}>
           <button onClick={()=>setShowInstanceModal(true)}
@@ -627,6 +629,7 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
             🔒 Joining as a team? Enter PIN →
           </button>
         </div>
+        )}
       </div>
       </div>
     </div>
@@ -699,7 +702,7 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
         <div style={{maxWidth:520, margin:"0 auto", padding:"20px 16px 48px"}}>
 
           {/* ── Hero card ── */}
-          <div style={{background:C.crimsonDark, borderRadius:20, padding:"28px 24px 26px", marginBottom:14}}>
+          <div style={{background:C.crimson, borderRadius:20, padding:"28px 24px 26px", marginBottom:14}}>
             <div style={{fontSize:11, fontWeight:700, color:"#D4908A",
               letterSpacing:2.5, textTransform:"uppercase", marginBottom:10}}>
               {(activeExercise.category || "Clear Articulation").toUpperCase()}
@@ -812,19 +815,17 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
       <div style={{background:C.card, borderBottom:"1px solid "+C.border,
         padding:"10px 20px", flexShrink:0}}>
         <div style={{maxWidth:680, margin:"0 auto"}}>
-          <div style={{display:"flex", justifyContent:"space-between",
-            alignItems:"center", marginBottom:8}}>
-            <span style={{fontSize:12, color:C.muted}}>Scenario {q} of {total}</span>
-            {activeExercise.timer_minutes > 0 && timeLeft !== null ? (
-              <span style={{
-                fontSize:14, fontWeight:700, letterSpacing:0.5, fontVariantNumeric:"tabular-nums",
-                color: timeLeft < 60 ? C.red : timeLeft < 120 ? C.amber : C.muted,
-              }}>
-                ⏱ {formatTime(timeLeft)}
-              </span>
-            ) : (
-              <span style={{fontSize:12, color:C.muted}}>Clear Articulation</span>
-            )}
+          <div style={{display:"flex", alignItems:"center", marginBottom:8}}>
+            <span style={{flex:1, fontSize:12, color:C.muted}}>Scenario {q} of {total}</span>
+            <span style={{flex:1, textAlign:"center"}}>
+              {activeExercise.timer_minutes > 0 && timeLeft !== null && (
+                <span style={{fontSize:14, fontWeight:700, letterSpacing:0.5,
+                  fontVariantNumeric:"tabular-nums", color:C.crimson}}>
+                  ⏱ {formatTime(timeLeft)}
+                </span>
+              )}
+            </span>
+            <span style={{flex:1}}/>
           </div>
           <div style={{display:"flex", gap:5}}>
             {Array.from({length:total},(_,i)=>(
@@ -994,103 +995,197 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
   // ═══════════════════════════════════════════════════════════════════════════
   // 5. RESULTS SCREEN
   // ═══════════════════════════════════════════════════════════════════════════
-  const ResultsScreen = () => (
-    <div style={{minHeight:"calc(100vh - 38px)", background:C.bg}}>
-      <TopNav userName={userName} userEmail={userEmail} onLogout={doLogout} />
+  const ResultsScreen = () => {
+    const didWell = activeScenarios
+      .flatMap((_,i) => sharpResults[i+1]?.whatWorked || [])
+      .filter(Boolean)
+      .slice(0, 4);
 
-      <div style={{maxWidth:640, margin:"0 auto", padding:"28px 20px 48px"}}>
-        <div style={{textAlign:"center", marginBottom:28}}>
-          <div style={{width:60, height:60, borderRadius:"50%",
-            background:C.greenPale, border:"2px solid "+C.green,
-            display:"flex", alignItems:"center", justifyContent:"center",
-            fontSize:26, margin:"0 auto 12px"}}>✓</div>
-          <h1 style={{fontSize:24, fontWeight:700, color:C.text,
-            fontFamily:"Georgia,serif", margin:"0 0 5px"}}>
-            Exercise Complete
-          </h1>
-          <p style={{fontSize:14, color:C.muted, margin:0}}>
-            Clear Articulation · {total} Scenarios
-          </p>
-          {userAnswers && (
-            <div style={{marginTop:10, fontSize:12, color:C.muted,
-              background:C.amberPale, border:"1px solid #FDE68A",
-              borderRadius:8, padding:"7px 14px", display:"inline-block"}}>
-              You've already submitted this exercise. Results are read-only.
+    const lostImpact = activeScenarios
+      .flatMap((_,i) => (sharpResults[i+1]?.impacts || [])
+        .filter(imp => imp.level === "high" || imp.level === "medium")
+        .map(imp => imp.why || imp.observation)
+      )
+      .filter(Boolean)
+      .slice(0, 4);
+
+    const hasFb = didWell.length > 0 || lostImpact.length > 0;
+
+    const tagline =
+      overall >= 9   ? "Precise, structured, and consistently on point."
+      : overall >= 7 ? "Strong communicator — minor gaps hold you back."
+      : overall >= 5 ? "Clear thinker — but key decisions arrive too late."
+      : overall >= 3 ? "Ideas are present — structure and specificity need work."
+      :                "Communication needs more focus, direction, and clarity.";
+
+    const Chevron = ({open}) => (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+        stroke={C.muted} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+        style={{transform:open?"rotate(180deg)":"rotate(0deg)",
+          transition:"transform 0.2s", flexShrink:0}}>
+        <polyline points="6 9 12 15 18 9"/>
+      </svg>
+    );
+
+    return (
+      <div style={{minHeight:"100vh", background:C.bg}}>
+        <TopNav userName={userName} userEmail={userEmail} onLogout={doLogout} />
+
+        <div style={{maxWidth:480, margin:"0 auto", padding:"24px 16px 48px"}}>
+
+          {/* ── Hero score card ── */}
+          <div style={{background:C.crimson, borderRadius:20,
+            padding:"32px 24px 28px", marginBottom:16, textAlign:"center"}}>
+            <div style={{fontSize:11, fontWeight:700, color:"rgba(255,255,255,0.6)",
+              letterSpacing:2.5, textTransform:"uppercase", marginBottom:14}}>
+              Your Score
             </div>
-          )}
-        </div>
+            <div style={{display:"flex", alignItems:"baseline",
+              justifyContent:"center", gap:4, marginBottom:16}}>
+              <span style={{fontSize:72, fontWeight:800, color:"#fff",
+                fontFamily:"Georgia,serif", lineHeight:1}}>{overall}</span>
+              <span style={{fontSize:26, color:"rgba(255,255,255,0.55)",
+                fontWeight:500}}>/10</span>
+            </div>
+            <p style={{fontSize:14, color:"rgba(255,255,255,0.85)", fontStyle:"italic",
+              margin:0, lineHeight:1.65, padding:"0 8px"}}>
+              "{tagline}"
+            </p>
+          </div>
 
-        <div style={{background:C.crimson, borderRadius:14,
-          padding:"22px 24px", marginBottom:22, textAlign:"center", color:"#fff"}}>
-          <div style={{fontSize:11, letterSpacing:2,
-            textTransform:"uppercase", opacity:0.7, marginBottom:5}}>
-            Your Score
-          </div>
-          <div style={{display:"flex", alignItems:"baseline",
-            justifyContent:"center", gap:4}}>
-            <span style={{fontSize:54, fontWeight:800,
-              fontFamily:"Georgia,serif", lineHeight:1}}>{overall}</span>
-            <span style={{fontSize:20, opacity:0.65}}>/10</span>
-          </div>
-        </div>
-
-        <div style={{marginBottom:22}}>
-          <div style={{fontSize:11, fontWeight:700, color:C.muted,
-            letterSpacing:1.5, textTransform:"uppercase", marginBottom:11}}>
-            Scenario Breakdown
-          </div>
-          {activeScenarios.map((s,i)=>{
-            const pos = i + 1;
-            const sc = displayScore(pos);
-            return (
-            <div key={s.id} style={{background:C.card,
-              border:"1px solid "+C.border, borderRadius:10,
-              padding:"12px 15px", marginBottom:7,
-              display:"flex", alignItems:"center", gap:11}}>
-              <div style={{width:24, height:24, borderRadius:"50%",
-                background:C.crimsonLight, display:"flex",
-                alignItems:"center", justifyContent:"center",
-                fontSize:11, fontWeight:700, color:C.crimson, flexShrink:0}}>
-                {i+1}
+          {/* ── Your Feedback ── */}
+          <div style={{background:C.card, borderRadius:14, border:"1px solid "+C.border,
+            marginBottom:10, overflow:"hidden", boxShadow:"0 1px 6px rgba(0,0,0,0.04)"}}>
+            <div onClick={()=>setResultsFbOpen(!resultsFbOpen)}
+              style={{padding:"16px 18px", display:"flex", alignItems:"center",
+                gap:14, cursor:"pointer"}}>
+              <div style={{width:44, height:44, borderRadius:12, background:C.crimsonPale,
+                display:"flex", alignItems:"center", justifyContent:"center",
+                flexShrink:0, fontSize:20}}>💬</div>
+              <div style={{flex:1}}>
+                <div style={{fontSize:15, fontWeight:700, color:C.text}}>Your Feedback</div>
+                <div style={{fontSize:12, color:C.muted, marginTop:2}}>Your communication pattern</div>
               </div>
-              <span style={{flex:1, fontSize:14, fontWeight:500, color:C.text}}>
-                {s.short}
-              </span>
-              <span style={{background:scoreBg(sc), color:scoreClr(sc),
-                fontWeight:700, fontSize:12, padding:"3px 10px",
-                borderRadius:20, marginRight:5}}>
-                {sc}/10
-              </span>
-              <button onClick={()=>{setFbOpen(pos);setScreen("feedback");}}
-                style={{background:"none", border:"none", color:C.crimson,
-                  fontSize:12, fontWeight:600, cursor:"pointer",
-                  textDecoration:"underline", padding:0, fontFamily:"inherit"}}>
-                Feedback
-              </button>
+              <Chevron open={resultsFbOpen} />
             </div>
-            );
-          })}
-        </div>
-
-        <div style={{background:C.card, border:"1px solid "+C.border,
-          borderRadius:14, padding:"20px 20px", textAlign:"center"}}>
-          <div style={{fontSize:20, marginBottom:7}}>🎉</div>
-          <div style={{fontSize:16, fontWeight:700, color:C.text, marginBottom:5}}>
-            Community Responses Unlocked
+            {resultsFbOpen && (
+              <div style={{borderTop:"1px solid "+C.border, padding:"18px 18px 20px"}}>
+                {!hasFb ? (
+                  <p style={{fontSize:13, color:C.muted, fontStyle:"italic",
+                    textAlign:"center", margin:0}}>
+                    Feedback will appear here once scoring is complete.
+                  </p>
+                ) : (
+                  <>
+                    {didWell.length > 0 && (
+                      <div style={{marginBottom: lostImpact.length > 0 ? 20 : 0}}>
+                        <div style={{fontSize:11, fontWeight:700, color:C.green,
+                          letterSpacing:1.5, textTransform:"uppercase", marginBottom:12}}>
+                          Where you did well
+                        </div>
+                        {didWell.map((item,i)=>(
+                          <div key={i} style={{display:"flex", gap:10,
+                            marginBottom: i < didWell.length-1 ? 10 : 0,
+                            alignItems:"flex-start"}}>
+                            <span style={{width:6, height:6, borderRadius:"50%",
+                              background:C.green, flexShrink:0, marginTop:7}}/>
+                            <span style={{fontSize:13, color:C.text, lineHeight:1.65}}>{item}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {lostImpact.length > 0 && (
+                      <div>
+                        <div style={{fontSize:11, fontWeight:700, color:C.crimson,
+                          letterSpacing:1.5, textTransform:"uppercase", marginBottom:12}}>
+                          Where you lost impact
+                        </div>
+                        {lostImpact.map((item,i)=>(
+                          <div key={i} style={{display:"flex", gap:10,
+                            marginBottom: i < lostImpact.length-1 ? 10 : 0,
+                            alignItems:"flex-start"}}>
+                            <span style={{width:6, height:6, borderRadius:"50%",
+                              background:C.crimson, flexShrink:0, marginTop:7}}/>
+                            <span style={{fontSize:13, color:C.text, lineHeight:1.65}}>{item}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
           </div>
-          <p style={{fontSize:13, color:C.muted, margin:"0 0 16px", lineHeight:1.6}}>
-            See how other participants answered each scenario.
-          </p>
-          <button onClick={()=>setScreen("community")}
-            style={{background:C.crimson, color:"#fff", border:"none",
-              borderRadius:8, padding:"12px 24px", fontSize:14,
-              fontWeight:700, cursor:"pointer", width:"100%"}}>
-            Explore Community Responses →
-          </button>
+
+          {/* ── Scenario Breakdown ── */}
+          <div style={{background:C.card, borderRadius:14, border:"1px solid "+C.border,
+            marginBottom:10, overflow:"hidden", boxShadow:"0 1px 6px rgba(0,0,0,0.04)"}}>
+            <div onClick={()=>setResultsScOpen(!resultsScOpen)}
+              style={{padding:"16px 18px", display:"flex", alignItems:"center",
+                gap:14, cursor:"pointer"}}>
+              <div style={{width:44, height:44, borderRadius:12, background:C.crimsonPale,
+                display:"flex", alignItems:"center", justifyContent:"center",
+                flexShrink:0, fontSize:20}}>📋</div>
+              <div style={{flex:1}}>
+                <div style={{fontSize:15, fontWeight:700, color:C.text}}>Scenario Breakdown</div>
+                <div style={{fontSize:12, color:C.muted, marginTop:2}}>Your score in each scenario</div>
+              </div>
+              <Chevron open={resultsScOpen} />
+            </div>
+            {resultsScOpen && (
+              <div style={{borderTop:"1px solid "+C.border, padding:"4px 14px 12px"}}>
+                {activeScenarios.map((s,i)=>{
+                  const pos = i + 1;
+                  const sc  = displayScore(pos);
+                  return (
+                    <div key={s.id} style={{display:"flex", alignItems:"center",
+                      gap:11, padding:"10px 4px",
+                      borderBottom: i < activeScenarios.length-1
+                        ? "1px solid "+C.borderLight : "none"}}>
+                      <div style={{width:24, height:24, borderRadius:"50%",
+                        background:C.crimsonLight, display:"flex", alignItems:"center",
+                        justifyContent:"center", fontSize:11, fontWeight:700,
+                        color:C.crimson, flexShrink:0}}>
+                        {pos}
+                      </div>
+                      <span style={{flex:1, fontSize:13, color:C.text}}>{s.short}</span>
+                      <span style={{background:scoreBg(sc), color:scoreClr(sc),
+                        fontWeight:700, fontSize:12, padding:"3px 9px",
+                        borderRadius:20, marginRight:4}}>
+                        {sc}/10
+                      </span>
+                      <button onClick={e=>{e.stopPropagation();setFbOpen(pos);setFbReturnScreen("results");setScreen("feedback");}}
+                        style={{background:"none", border:"none", color:C.crimson,
+                          fontSize:12, fontWeight:600, cursor:"pointer",
+                          textDecoration:"underline", padding:0, fontFamily:"inherit"}}>
+                        Feedback
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* ── Community Responses ── */}
+          <div onClick={()=>setScreen("community")}
+            style={{background:C.card, borderRadius:14, border:"1px solid "+C.border,
+              padding:"16px 18px", display:"flex", alignItems:"center", gap:14,
+              cursor:"pointer", boxShadow:"0 1px 6px rgba(0,0,0,0.04)"}}>
+            <div style={{width:44, height:44, borderRadius:12, background:C.crimsonPale,
+              display:"flex", alignItems:"center", justifyContent:"center",
+              flexShrink:0, fontSize:20}}>👥</div>
+            <div style={{flex:1}}>
+              <div style={{fontSize:15, fontWeight:700, color:C.text}}>Community Responses</div>
+              <div style={{fontSize:12, color:C.muted, marginTop:2}}>See how others answered</div>
+            </div>
+            <span style={{fontSize:20, color:C.muted, flexShrink:0}}>›</span>
+          </div>
+
         </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   // ═══════════════════════════════════════════════════════════════════════════
   // 5. FEEDBACK MODAL — full SHARP UI
@@ -1119,7 +1214,7 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
     }[sd.scoreConfidence] || {} : null;
 
     return (
-      <div onClick={()=>setScreen("results")}
+      <div onClick={()=>setScreen(fbReturnScreen)}
         style={{position:"fixed", inset:0, background:"rgba(0,0,0,0.4)",
           display:"flex", alignItems:"center", justifyContent:"center",
           zIndex:200, padding:"20px"}}>
@@ -1153,7 +1248,7 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
                   </div>
                 )}
               </div>
-              <button onClick={()=>setScreen("results")}
+              <button onClick={()=>setScreen(fbReturnScreen)}
                 style={{background:C.borderLight, border:"none", color:C.muted,
                   width:28, height:28, borderRadius:"50%", cursor:"pointer",
                   fontSize:16, display:"flex", alignItems:"center", justifyContent:"center",
@@ -1321,7 +1416,7 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
               </>
             )}
 
-            <button onClick={()=>setScreen("results")}
+            <button onClick={()=>setScreen(fbReturnScreen)}
               style={{width:"100%", padding:"11px", background:C.crimson,
                 color:"#fff", border:"none", borderRadius:10,
                 fontSize:13, fontWeight:700, cursor:"pointer", marginTop:5}}>
@@ -1334,7 +1429,134 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
   };
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // 6. COMMUNITY SCREEN
+  // 6. OTHER FEEDBACK MODAL
+  // ═══════════════════════════════════════════════════════════════════════════
+  const OtherFeedbackModal = () => {
+    if (!otherFb) return null;
+    const { name, result, answer } = otherFb;
+    const impBg = lvl => lvl==="high" ? {bg:C.crimsonPale, border:C.crimsonBorder}
+                       : lvl==="medium" ? {bg:C.amberPale, border:"#FDE68A"}
+                       : {bg:C.tag, border:C.border};
+    return (
+      <div onClick={()=>setOtherFb(null)}
+        style={{position:"fixed", inset:0, background:"rgba(0,0,0,0.4)",
+          display:"flex", alignItems:"center", justifyContent:"center",
+          zIndex:200, padding:"20px"}}>
+        <div onClick={e=>e.stopPropagation()}
+          style={{background:C.card, borderRadius:16, width:"100%", maxWidth:500,
+            maxHeight:"88vh", overflowY:"auto",
+            boxShadow:"0 20px 60px rgba(0,0,0,0.25)"}}>
+
+          {/* Header */}
+          <div style={{padding:"16px 20px", borderBottom:"1px solid "+C.border,
+            display:"flex", alignItems:"center", justifyContent:"space-between",
+            position:"sticky", top:0, background:C.card, zIndex:10}}>
+            <div>
+              <div style={{fontSize:10, color:C.muted, letterSpacing:1.2,
+                textTransform:"uppercase", marginBottom:3}}>Feedback</div>
+              <div style={{fontSize:15, fontWeight:700, color:C.text}}>{name}</div>
+            </div>
+            <button onClick={()=>setOtherFb(null)}
+              style={{background:C.borderLight, border:"none", color:C.muted,
+                width:28, height:28, borderRadius:"50%", cursor:"pointer",
+                fontSize:16, display:"flex", alignItems:"center",
+                justifyContent:"center", flexShrink:0}}>
+              ✕
+            </button>
+          </div>
+
+          <div style={{padding:"20px"}}>
+            {result ? (
+              <>
+                {/* Score + one-liner */}
+                <div style={{textAlign:"center", marginBottom:18}}>
+                  <span style={{background:scoreBg(result.score), color:scoreClr(result.score),
+                    fontWeight:800, fontSize:22, padding:"6px 20px", borderRadius:30}}>
+                    {result.score}/10
+                  </span>
+                  {result.oneLiner && (
+                    <p style={{fontSize:13, color:C.textSoft, margin:"12px 0 0",
+                      fontStyle:"italic", lineHeight:1.6}}>"{result.oneLiner}"</p>
+                  )}
+                </div>
+
+                {/* Their response */}
+                <div style={{background:C.bg, borderRadius:10, padding:"12px 14px",
+                  marginBottom:18, border:"1px solid "+C.border}}>
+                  <div style={{fontSize:10, fontWeight:700, color:C.muted,
+                    letterSpacing:1.2, textTransform:"uppercase", marginBottom:7}}>
+                    Their Response
+                  </div>
+                  <p style={{fontSize:13, color:C.text, lineHeight:1.65, margin:0}}>{answer}</p>
+                </div>
+
+                {/* What worked */}
+                {result.whatWorked?.length > 0 && (
+                  <div style={{marginBottom:18}}>
+                    <div style={{fontSize:11, fontWeight:700, color:C.green,
+                      letterSpacing:1.4, textTransform:"uppercase", marginBottom:10}}>
+                      What Worked
+                    </div>
+                    {result.whatWorked.map((w,i)=>(
+                      <div key={i} style={{display:"flex", gap:9,
+                        marginBottom:i<result.whatWorked.length-1?9:0,
+                        alignItems:"flex-start"}}>
+                        <span style={{width:6, height:6, borderRadius:"50%",
+                          background:C.green, flexShrink:0, marginTop:7}}/>
+                        <span style={{fontSize:13, color:C.text, lineHeight:1.65}}>{w}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Impact cards */}
+                {result.impacts?.length > 0 && (
+                  <div style={{marginBottom:18}}>
+                    <div style={{fontSize:11, fontWeight:700, color:C.crimson,
+                      letterSpacing:1.4, textTransform:"uppercase", marginBottom:10}}>
+                      Where Impact Was Lost
+                    </div>
+                    {result.impacts.map((card,i)=>{
+                      const st = impBg(card.level);
+                      return (
+                        <div key={i} style={{background:st.bg, border:"1px solid "+st.border,
+                          borderRadius:10, padding:"12px 14px",
+                          marginBottom:i<result.impacts.length-1?10:0}}>
+                          <p style={{fontSize:13, color:C.text, lineHeight:1.6,
+                            margin: card.why ? "0 0 6px" : 0}}>
+                            {card.observation}
+                          </p>
+                          {card.why && (
+                            <p style={{fontSize:12, color:C.textSoft,
+                              lineHeight:1.55, margin:0}}>{card.why}</p>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </>
+            ) : (
+              <p style={{fontSize:13, color:C.muted, textAlign:"center",
+                fontStyle:"italic", margin:"8px 0 16px"}}>
+                Feedback not available for this response yet.
+              </p>
+            )}
+
+            <button onClick={()=>setOtherFb(null)}
+              style={{width:"100%", padding:"11px", background:C.crimson,
+                color:"#fff", border:"none", borderRadius:10,
+                fontSize:13, fontWeight:700, cursor:"pointer"}}>
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 7. COMMUNITY SCREEN
   // ═══════════════════════════════════════════════════════════════════════════
   const CommunityScreen = () => {
     // Instance users: real DB answers filtered to their instance
@@ -1346,6 +1568,7 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
 
     return (
     <div style={{minHeight:"calc(100vh - 38px)", background:C.bg}}>
+      {otherFb && OtherFeedbackModal()}
       <TopNav userName={userName} userEmail={userEmail} onLogout={doLogout}
         back={{label:"Results", onClick:()=>setScreen("results")}} />
 
@@ -1416,41 +1639,41 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
         {myAns && (
           <div style={{background:C.card, borderRadius:12,
             border:"2px solid "+C.crimson, padding:"14px 16px", marginBottom:18}}>
-            <div style={{display:"flex", alignItems:"center",
-              justifyContent:"space-between", marginBottom:9}}>
-              <div style={{display:"flex", alignItems:"center", gap:8}}>
-                <div style={{width:30, height:30, borderRadius:"50%",
-                  background:C.crimsonLight, display:"flex", alignItems:"center",
-                  justifyContent:"center", fontSize:11, fontWeight:700, color:C.crimson}}>
-                  {userName?.[0]?.toUpperCase()||"Y"}
-                </div>
-                <span style={{fontSize:13, fontWeight:700, color:C.text}}>
-                  Your Answer
+            <div style={{display:"flex", alignItems:"center", gap:9, marginBottom:11}}>
+              <span style={{fontSize:18, flexShrink:0}}>🏅</span>
+              <div style={{width:30, height:30, borderRadius:"50%",
+                background:C.crimsonLight, display:"flex", alignItems:"center",
+                justifyContent:"center", fontSize:11, fontWeight:700,
+                color:C.crimson, flexShrink:0}}>
+                {myAns.init}
+              </div>
+              <span style={{fontSize:13, fontWeight:700, color:C.text, flex:1}}>
+                {myAns.name}
+              </span>
+              <span style={{fontSize:9, fontWeight:700, background:C.crimsonLight,
+                color:C.crimson, padding:"2px 7px", borderRadius:8, marginRight:4}}>
+                YOU
+              </span>
+              {myAns.score !== null && (
+                <span style={{background:scoreBg(myAns.score), color:scoreClr(myAns.score),
+                  fontWeight:700, fontSize:12, padding:"3px 10px", borderRadius:20, flexShrink:0}}>
+                  {myAns.score}/10
                 </span>
-                <span style={{fontSize:9, fontWeight:700,
-                  background:C.crimsonLight, color:C.crimson,
-                  padding:"2px 7px", borderRadius:8}}>YOU</span>
-              </div>
-              <div style={{display:"flex", alignItems:"center", gap:7}}>
-                {myAns.score !== null && (
-                  <span style={{background:scoreBg(myAns.score), color:scoreClr(myAns.score),
-                    fontWeight:700, fontSize:12, padding:"3px 10px", borderRadius:20}}>
-                    {myAns.score}/10
-                  </span>
-                )}
-                {myAns.ih && (
-                  <button onClick={()=>{setInsightOpen(myAns.id);setScreen("insight");}}
-                    style={{background:C.crimson, border:"none", color:"#fff",
-                      fontSize:11, fontWeight:600, padding:"5px 11px",
-                      borderRadius:7, cursor:"pointer"}}>
-                    My Feedback →
-                  </button>
-                )}
-              </div>
+              )}
             </div>
-            <p style={{fontSize:13, color:C.text, lineHeight:1.65, margin:0}}>
+            <p style={{fontSize:13, color:C.text, lineHeight:1.65, margin:"0 0 12px"}}>
               {myAns.answer}
             </p>
+            <div style={{display:"flex", justifyContent:"flex-end"}}>
+              <button
+                onClick={()=>{setFbOpen(commSc);setFbReturnScreen("community");setScreen("feedback");}}
+                style={{background:"none", border:"1px solid "+C.border,
+                  color:C.text, fontSize:12, fontWeight:500,
+                  padding:"5px 13px", borderRadius:8, cursor:"pointer",
+                  fontFamily:"inherit"}}>
+                View Feedback →
+              </button>
+            </div>
           </div>
         )}
 
@@ -1481,27 +1704,46 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
               fontSize:13, color:C.muted, fontStyle:"italic"}}>
               No other responses in your instance yet.
             </div>
-          ) : instOthers.map((sub, i) => (
+          ) : instOthers.map((sub, i) => {
+            const subResult = sub.sharp_results?.[commSc] || sub.sharp_results?.[String(commSc)] || null;
+            const subAnswer = sub.answers[commSc] || sub.answers[String(commSc)];
+            return (
             <div key={i} style={{background:C.card, borderRadius:12,
               padding:"14px 16px", marginBottom:9, border:"1px solid "+C.border}}>
-              <div style={{display:"flex", alignItems:"center",
-                gap:9, marginBottom:9}}>
+              <div style={{display:"flex", alignItems:"center", gap:9, marginBottom:11}}>
                 <div style={{width:30, height:30, borderRadius:"50%",
                   background:"#EDE8E3", display:"flex", alignItems:"center",
                   justifyContent:"center", fontSize:10, fontWeight:700,
                   color:C.muted, flexShrink:0}}>
                   {sub.name[0].toUpperCase()}
                 </div>
-                <span style={{fontSize:13, fontWeight:600, color:C.text}}>
+                <span style={{fontSize:13, fontWeight:600, color:C.text, flex:1}}>
                   {sub.name}
                 </span>
+                {subResult?.score != null && (
+                  <span style={{background:scoreBg(subResult.score), color:scoreClr(subResult.score),
+                    fontWeight:700, fontSize:12, padding:"3px 10px",
+                    borderRadius:20, flexShrink:0}}>
+                    {subResult.score}/10
+                  </span>
+                )}
               </div>
-              <p style={{fontSize:13, color:C.text, lineHeight:1.65,
-                margin:"0 0 0 39px"}}>
-                {sub.answers[commSc] || sub.answers[String(commSc)]}
+              <p style={{fontSize:13, color:C.text, lineHeight:1.65, margin:"0 0 11px"}}>
+                {subAnswer}
               </p>
+              <div style={{display:"flex", justifyContent:"flex-end"}}>
+                <button
+                  onClick={()=>setOtherFb({ name: sub.name, result: subResult, answer: subAnswer })}
+                  style={{background:"none", border:"1px solid "+C.border,
+                    color:C.text, fontSize:12, fontWeight:500,
+                    padding:"5px 13px", borderRadius:8, cursor:"pointer",
+                    fontFamily:"inherit"}}>
+                  View Feedback →
+                </button>
+              </div>
             </div>
-          ))
+            );
+          })
         ) : (
           othersSorted.map(ans=>(
             <div key={ans.id} style={{background:C.card, borderRadius:12,
@@ -1655,7 +1897,7 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
             {screen==="start"     && (hasSubmitted ? ResultsScreen() : StartScreen())}
             {screen==="answering" && (hasSubmitted ? ResultsScreen() : AnsweringScreen())}
             {screen==="results"   && (hasSubmitted ? ResultsScreen()  : StartScreen())}
-            {screen==="feedback"  && (hasSubmitted ? <>{ResultsScreen()}{FeedbackModal()}</> : StartScreen())}
+            {screen==="feedback"  && (hasSubmitted ? <>{fbReturnScreen==="community"?CommunityScreen():ResultsScreen()}{FeedbackModal()}</> : StartScreen())}
             {screen==="community" && (hasSubmitted ? CommunityScreen() : StartScreen())}
             {screen==="insight"   && (hasSubmitted ? <>{CommunityScreen()}{InsightModal()}</> : StartScreen())}
           </>
