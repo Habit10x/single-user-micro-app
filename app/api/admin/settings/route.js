@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import sql, { initSettingsDb } from "../../../../lib/db";
 
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   await initSettingsDb();
   const rows = await sql`SELECT key, value FROM settings`;
