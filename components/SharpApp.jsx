@@ -702,7 +702,7 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
         <div style={{maxWidth:520, margin:"0 auto", padding:"20px 16px 48px"}}>
 
           {/* ── Hero card ── */}
-          <div style={{background:C.crimson, borderRadius:20, padding:"28px 24px 26px", marginBottom:14}}>
+          <div style={{background:"#8B2020", borderRadius:20, padding:"28px 24px 26px", marginBottom:14}}>
             <div style={{fontSize:11, fontWeight:700, color:"#D4908A",
               letterSpacing:2.5, textTransform:"uppercase", marginBottom:10}}>
               {(activeExercise.category || "Clear Articulation").toUpperCase()}
