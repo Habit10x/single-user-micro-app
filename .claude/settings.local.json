@@ -12,7 +12,13 @@
       "Bash(winget install *)",
       "Bash(winget search *)",
       "Bash(k6 version *)",
-      "PowerShell(k6 version *)"
+      "PowerShell(k6 version *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(grep -rn \"e/\\\\${\" --include=\"*.js\" --include=\"*.jsx\")",
+      "Bash(grep -n \"slug\\\\|/e/\\\\${\" components/ModeratorPanel.jsx)",
+      "Bash(rm \"app/e/[id]/page.js\")",
+      "Bash(rmdir \"app/e/[id]\")"
     ]
   }
 }
