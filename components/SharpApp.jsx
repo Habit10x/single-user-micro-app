@@ -680,11 +680,25 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
         <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
       </svg>
     );
+    const SvgTag = () => (
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+        stroke="rgba(255,255,255,0.9)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
+        <line x1="7" y1="7" x2="7.01" y2="7"/>
+      </svg>
+    );
+
+    const customTags = activeExercise.tags
+      ? activeExercise.tags.split(",").map(t => t.trim()).filter(Boolean)
+      : [];
 
     const statItems = [
       { icon: <SvgPeople/>, label: `${total} Scenario${total!==1?"s":""}` },
       { icon: <SvgClock/>,  label: activeExercise.timer_minutes > 0 ? `${activeExercise.timer_minutes} min` : "No limit" },
-      { icon: <SvgPerson/>, label: "Solo" },
+      ...(customTags.length > 0
+        ? customTags.map(t => ({ icon: <SvgTag/>, label: t }))
+        : [{ icon: <SvgPerson/>, label: "Solo" }]
+      ),
     ];
 
     const instructions = [
