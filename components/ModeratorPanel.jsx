@@ -137,8 +137,8 @@ export default function ModeratorPanel({ onLogout }) {
     }
   };
 
-  const copyLink = (id) => {
-    const url = `${window.location.origin}/e/${id}`;
+  const copyLink = (slug) => {
+    const url = `${window.location.origin}/e/${slug}`;
     navigator.clipboard.writeText(url).catch(() => {
       // Fallback for older browsers
       const ta = document.createElement("textarea");
@@ -148,7 +148,7 @@ export default function ModeratorPanel({ onLogout }) {
       document.execCommand("copy");
       document.body.removeChild(ta);
     });
-    setCopiedId(id);
+    setCopiedId(slug);
     setTimeout(() => setCopiedId(null), 2000);
   };
 
@@ -258,8 +258,8 @@ export default function ModeratorPanel({ onLogout }) {
             exercises.map(ex => {
               const isDefault = String(defaultExId) === String(ex.id);
               const url = typeof window !== "undefined"
-                ? `${window.location.origin}/e/${ex.id}`
-                : `/e/${ex.id}`;
+                ? `${window.location.origin}/e/${ex.slug}`
+                : `/e/${ex.slug}`;
 
               return (
                 <div key={ex.id} style={{
@@ -303,17 +303,17 @@ export default function ModeratorPanel({ onLogout }) {
                       {url}
                     </span>
                     <button
-                      onClick={() => copyLink(ex.id)}
+                      onClick={() => copyLink(ex.slug)}
                       style={{
                         flexShrink: 0, padding: "5px 12px",
-                        background: copiedId === ex.id ? C.greenPale : C.crimsonPale,
-                        border: "1px solid " + (copiedId === ex.id ? C.green : C.crimsonBorder),
+                        background: copiedId === ex.slug ? C.greenPale : C.crimsonPale,
+                        border: "1px solid " + (copiedId === ex.slug ? C.green : C.crimsonBorder),
                         borderRadius: 7,
-                        color: copiedId === ex.id ? C.greenDark : C.crimson,
+                        color: copiedId === ex.slug ? C.greenDark : C.crimson,
                         fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
                       }}
                     >
-                      {copiedId === ex.id ? "✓ Copied!" : "Copy Link"}
+                      {copiedId === ex.slug ? "✓ Copied!" : "Copy Link"}
                     </button>
                   </div>
 

@@ -8,12 +8,16 @@ export default async function Home() {
     // Check for a configured default exercise
     const settings = await sql`SELECT value FROM settings WHERE key = 'default_exercise_id'`;
     const defaultId = settings[0]?.value;
-    if (defaultId) redirect(`/e/${defaultId}`);
+    if (defaultId) {
+      await initAdminDb();
+      const [ex] = await sql`SELECT slug FROM exercises WHERE id = ${parseInt(defaultId)}`;
+      if (ex?.slug) redirect(`/e/${ex.slug}`);
+    }
 
     // No default set — redirect to the first available exercise
     await initAdminDb();
-    const [first] = await sql`SELECT id FROM exercises ORDER BY created_at LIMIT 1`;
-    if (first) redirect(`/e/${first.id}`);
+    const [first] = await sql`SELECT slug FROM exercises ORDER BY created_at LIMIT 1`;
+    if (first?.slug) redirect(`/e/${first.slug}`);
   } catch {
     // DB not reachable yet — fall through to the placeholder below
   }

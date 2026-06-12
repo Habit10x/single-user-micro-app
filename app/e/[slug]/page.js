@@ -3,15 +3,14 @@ import SharpApp from "../../../components/SharpApp";
 import sql, { initAdminDb } from "../../../lib/db";
 
 export default async function ExercisePage({ params }) {
-  const { id } = await params;
-  const numId = parseInt(id);
+  const { slug } = await params;
 
-  if (isNaN(numId)) redirect("/");
+  if (!slug) redirect("/");
 
   try {
     await initAdminDb();
 
-    const exercises = await sql`SELECT * FROM exercises WHERE id = ${numId}`;
+    const exercises = await sql`SELECT * FROM exercises WHERE slug = ${slug}`;
     if (!exercises.length) redirect("/");
 
     const exercise = exercises[0];
@@ -19,7 +18,7 @@ export default async function ExercisePage({ params }) {
       SELECT s.*
       FROM scenarios s
       JOIN exercise_scenarios es ON s.id = es.scenario_id
-      WHERE es.exercise_id = ${numId}
+      WHERE es.exercise_id = ${exercise.id}
       ORDER BY es.order_index
     `;
 

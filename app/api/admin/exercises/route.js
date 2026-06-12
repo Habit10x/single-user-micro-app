@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import sql, { initAdminDb } from "../../../../lib/db";
+import sql, { initAdminDb, generateSlug } from "../../../../lib/db";
 
 export async function GET() {
   await initAdminDb();
@@ -17,11 +17,17 @@ export async function GET() {
 export async function POST(req) {
   const body = await req.json();
   await initAdminDb();
-  // Default to SHARP (first algorithm seeded)
   const [sharp] = await sql`SELECT id FROM algorithms WHERE name = 'SHARP' LIMIT 1`;
+  // Generate a unique slug
+  let slug;
+  for (let i = 0; i < 20; i++) {
+    slug = generateSlug();
+    const [exists] = await sql`SELECT id FROM exercises WHERE slug = ${slug}`;
+    if (!exists) break;
+  }
   const [exercise] = await sql`
-    INSERT INTO exercises (title, description, timer_minutes, tags, algorithm_id)
-    VALUES (${body.title}, ${body.description || ""}, ${body.timer_minutes || 5}, ${body.tags || ""}, ${sharp?.id || null})
+    INSERT INTO exercises (title, description, timer_minutes, tags, slug, algorithm_id)
+    VALUES (${body.title}, ${body.description || ""}, ${body.timer_minutes || 5}, ${body.tags || ""}, ${slug}, ${sharp?.id || null})
     RETURNING *
   `;
   return NextResponse.json(exercise);

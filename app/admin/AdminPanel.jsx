@@ -723,8 +723,8 @@ function ExercisesTab() {
     setLoading(false);
   }, []);
 
-  const copyLink = (id) => {
-    const url = `${window.location.origin}/e/${id}`;
+  const copyLink = (slug) => {
+    const url = `${window.location.origin}/e/${slug}`;
     navigator.clipboard.writeText(url).catch(() => {
       const ta = document.createElement("textarea");
       ta.value = url;
@@ -733,7 +733,7 @@ function ExercisesTab() {
       document.execCommand("copy");
       document.body.removeChild(ta);
     });
-    setCopiedId(id);
+    setCopiedId(slug);
     setTimeout(() => setCopiedId(null), 2000);
   };
 
@@ -948,16 +948,16 @@ function ExercisesTab() {
                 <span style={{ flex: 1, fontSize: 12, color: C.textSoft,
                   fontFamily: "monospace", overflow: "hidden",
                   textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
-                  {typeof window !== "undefined" ? `${window.location.origin}/e/${selected.id}` : `/e/${selected.id}`}
+                  {typeof window !== "undefined" ? `${window.location.origin}/e/${selected.slug}` : `/e/${selected.slug}`}
                 </span>
                 <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
-                  <button onClick={() => copyLink(selected.id)}
+                  <button onClick={() => copyLink(selected.slug)}
                     style={{ padding: "5px 13px", borderRadius: 7, fontSize: 12, fontWeight: 700,
                       cursor: "pointer", fontFamily: "inherit", border: "1.5px solid",
-                      borderColor: copiedId === selected.id ? C.green : C.crimsonBorder,
-                      background: copiedId === selected.id ? C.greenPale : C.crimsonPale,
-                      color: copiedId === selected.id ? C.green : C.crimson }}>
-                    {copiedId === selected.id ? "✓ Copied!" : "Copy Link"}
+                      borderColor: copiedId === selected.slug ? C.green : C.crimsonBorder,
+                      background: copiedId === selected.slug ? C.greenPale : C.crimsonPale,
+                      color: copiedId === selected.slug ? C.green : C.crimson }}>
+                    {copiedId === selected.slug ? "✓ Copied!" : "Copy Link"}
                   </button>
                   {String(defaultExId) !== String(selected.id) && (
                     <button onClick={() => setAsDefault(selected.id)} disabled={settingDefault}
