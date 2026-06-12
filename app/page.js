@@ -2,25 +2,30 @@ import { redirect } from "next/navigation";
 import sql, { initSettingsDb, initAdminDb } from "../lib/db";
 
 export default async function Home() {
+  let target = null;
+
   try {
     await initSettingsDb();
+    await initAdminDb();
 
-    // Check for a configured default exercise
     const settings = await sql`SELECT value FROM settings WHERE key = 'default_exercise_id'`;
     const defaultId = settings[0]?.value;
+
     if (defaultId) {
-      await initAdminDb();
       const [ex] = await sql`SELECT slug FROM exercises WHERE id = ${parseInt(defaultId)}`;
-      if (ex?.slug) redirect(`/e/${ex.slug}`);
+      if (ex?.slug) target = `/e/${ex.slug}`;
     }
 
-    // No default set — redirect to the first available exercise
-    await initAdminDb();
-    const [first] = await sql`SELECT slug FROM exercises ORDER BY created_at LIMIT 1`;
-    if (first?.slug) redirect(`/e/${first.slug}`);
+    if (!target) {
+      const [first] = await sql`SELECT slug FROM exercises ORDER BY created_at LIMIT 1`;
+      if (first?.slug) target = `/e/${first.slug}`;
+    }
   } catch {
     // DB not reachable yet — fall through to the placeholder below
   }
+
+  // Call redirect outside try/catch so Next.js's redirect mechanism isn't swallowed
+  if (target) redirect(target);
 
   return (
     <div style={{
