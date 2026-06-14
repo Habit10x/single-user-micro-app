@@ -318,6 +318,7 @@ function UsersTab() {
 
 const EMPTY_SCENARIO = {
   short_title: "", full_title: "", prompt: "", context: [""],
+  context_type: "points", task_text: "",
   score: 7, point_first: true, headline: "", what_worked: "", to_improve: "",
 };
 
@@ -339,7 +340,12 @@ function ScenariosTab() {
 
   const pick = s => {
     setSelected(s);
-    setForm({ ...s, context: s.context?.length ? s.context : [""] });
+    setForm({
+      ...s,
+      context: s.context?.length ? s.context : [""],
+      context_type: s.context_type || "points",
+      task_text: s.task_text || "",
+    });
     setMode("edit");
   };
 
@@ -426,6 +432,10 @@ function ScenariosTab() {
               <ContextEditor value={form.context?.length ? form.context : [""]}
                 onChange={f("context")} />
             </div>
+
+            <TextareaField label="Task Text (optional — shown under 'TASK' heading below context)"
+              value={form.task_text} onChange={f("task_text")}
+              rows={3} placeholder="Leave empty to hide the Task section…" />
 
             <div style={{ display: "grid", gridTemplateColumns: "140px 1fr", gap: 14 }}>
               <Field label="Score (1–10)" type="number" value={form.score}
@@ -686,7 +696,7 @@ function AlgorithmsTab() {
 // ─── Exercises Tab ────────────────────────────────────────────────────────────
 
 const EMPTY_EXERCISE = {
-  title: "", description: "", timer_minutes: 5, tags: "", show_default_tags: true,
+  title: "", description: "", category: "", task_description: "", timer_minutes: 5, tags: "", show_default_tags: true,
 };
 
 function ExercisesTab() {
@@ -869,7 +879,9 @@ function ExercisesTab() {
             </div>
           </div>
           <Field label="Title" value={form.title} onChange={ef("title")} placeholder="e.g. Articulation-02" />
+          <Field label="Category" value={form.category} onChange={ef("category")} placeholder="e.g. Articulation" />
           <TextareaField label="Description" value={form.description} onChange={ef("description")} rows={2} />
+          <TextareaField label="Task Description (shown under 'The Task' on instruction page)" value={form.task_description} onChange={ef("task_description")} rows={3} placeholder="e.g. You'll be shown a situation…" />
           <Field label="Tags (comma-separated)" value={form.tags} onChange={ef("tags")}
             placeholder="e.g. Solo, Intermediate, Written" />
           <TimerField value={form.timer_minutes} onChange={ef("timer_minutes")} />
@@ -899,7 +911,9 @@ function ExercisesTab() {
                 </div>
               </div>
               <Field label="Title" value={form.title} onChange={ef("title")} />
+              <Field label="Category" value={form.category} onChange={ef("category")} placeholder="e.g. Articulation" />
               <TextareaField label="Description" value={form.description} onChange={ef("description")} rows={2} />
+              <TextareaField label="Task Description (shown under 'The Task' on instruction page)" value={form.task_description} onChange={ef("task_description")} rows={3} placeholder="e.g. You'll be shown a situation…" />
               <Field label="Tags (comma-separated)" value={form.tags} onChange={ef("tags")}
                 placeholder="e.g. Solo, Intermediate, Written" />
               <TimerField value={form.timer_minutes} onChange={ef("timer_minutes")} />
@@ -949,6 +963,8 @@ function ExercisesTab() {
                   <Btn variant="ghost" onClick={() => {
                     setForm({
                       title: selected.title, description: selected.description,
+                      category: selected.category || "",
+                      task_description: selected.task_description || "",
                       timer_minutes: selected.timer_minutes, tags: selected.tags || "",
                       show_default_tags: selected.show_default_tags !== false,
                     });

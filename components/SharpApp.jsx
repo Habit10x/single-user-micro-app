@@ -129,16 +129,18 @@ const TopNav = ({userName, userEmail, onLogout, back}) => (
 // Map a DB scenario row to the component's internal format
 function mapDbScenario(s) {
   return {
-    id:      s.id,
-    short:   s.short_title,
-    full:    s.full_title,
-    text:    s.prompt,
-    ctx:     Array.isArray(s.context) ? s.context : [],
-    score:   s.score ?? null,
-    pf:      s.point_first ?? true,
-    headline: s.headline    || "",
-    worked:   s.what_worked || "",
-    improve:  s.to_improve  || "",
+    id:          s.id,
+    short:       s.short_title,
+    full:        s.full_title,
+    text:        s.prompt,
+    ctx:         Array.isArray(s.context) ? s.context : [],
+    contextType: s.context_type || "points",
+    taskText:    s.task_text    || "",
+    score:       s.score        ?? null,
+    pf:          s.point_first  ?? true,
+    headline:    s.headline     || "",
+    worked:      s.what_worked  || "",
+    improve:     s.to_improve   || "",
   };
 }
 
@@ -764,9 +766,8 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
               </span>
             </div>
             <p style={{fontSize:15, color:C.text, lineHeight:1.8, margin:"0 0 22px"}}>
-              You'll be shown a situation and the context around it. Read the situation carefully,
-              then write the clearest response you can — one that communicates the core point
-              directly and specifically.
+              {activeExercise.task_description ||
+                "You'll be shown a situation and the context around it. Read the situation carefully, then write the clearest response you can — one that communicates the core point directly and specifically."}
             </p>
 
             <hr style={{border:"none", borderTop:"1px solid "+C.border, margin:"0 0 22px"}}/>
@@ -865,23 +866,40 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
               Scenario {q}
             </div>
             <p style={{fontSize:15, color:C.text, lineHeight:1.7,
-              margin:0, fontStyle:"italic", fontWeight:500}}>
-              "{scenario.text}"
+              margin:0, fontStyle:"italic", fontWeight:500, whiteSpace:"pre-wrap"}}>
+              {scenario.text}
             </p>
           </div>
           <div style={{padding:"14px 18px", background:"#FDFCFB"}}>
-            <div style={{fontSize:10, fontWeight:700, color:C.muted,
-              letterSpacing:1.5, textTransform:"uppercase", marginBottom:9}}>
-              What You Know
-            </div>
-            {scenario.ctx.map((c,i)=>(
-              <div key={i} style={{display:"flex", gap:9, marginBottom:6,
-                alignItems:"flex-start"}}>
-                <span style={{color:C.crimson, fontWeight:700, fontSize:13,
-                  flexShrink:0, marginTop:2}}>→</span>
-                <span style={{fontSize:13, color:C.text, lineHeight:1.55}}>{c}</span>
-              </div>
-            ))}
+            {scenario.ctx.filter(c => c.trim()).length > 0 && (
+              <>
+                <div style={{fontSize:10, fontWeight:700, color:C.muted,
+                  letterSpacing:1.5, textTransform:"uppercase", marginBottom:9}}>
+                  What You Know
+                </div>
+                {scenario.ctx.filter(c => c.trim()).map((c,i,arr)=>(
+                  <div key={i} style={{display:"flex", gap:9,
+                    marginBottom: i < arr.length - 1 ? 6 : (scenario.taskText ? 14 : 0),
+                    alignItems:"flex-start"}}>
+                    <span style={{color:C.crimson, fontWeight:700, fontSize:13,
+                      flexShrink:0, marginTop:2}}>→</span>
+                    <span style={{fontSize:13, color:C.text, lineHeight:1.55}}>{c}</span>
+                  </div>
+                ))}
+              </>
+            )}
+            {scenario.taskText && (
+              <>
+                <div style={{fontSize:10, fontWeight:700, color:C.muted,
+                  letterSpacing:1.5, textTransform:"uppercase", marginBottom:8}}>
+                  Task
+                </div>
+                <p style={{fontSize:15, color:C.text, lineHeight:1.7,
+                  margin:0, fontStyle:"italic", fontWeight:500, whiteSpace:"pre-wrap"}}>
+                  {scenario.taskText}
+                </p>
+              </>
+            )}
           </div>
         </div>
 

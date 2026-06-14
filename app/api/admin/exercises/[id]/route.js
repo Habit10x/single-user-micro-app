@@ -28,8 +28,9 @@ export async function PUT(req, { params }) {
   const [exercise] = await sql`
     UPDATE exercises
     SET title = ${body.title}, description = ${body.description},
-        timer_minutes = ${body.timer_minutes}, tags = ${body.tags || ""},
-        show_default_tags = ${body.show_default_tags !== false}
+        category = ${body.category || ""}, task_description = ${body.task_description || ""},
+        timer_minutes = ${body.timer_minutes},
+        tags = ${body.tags || ""}, show_default_tags = ${body.show_default_tags !== false}
     WHERE id = ${id}
     RETURNING *
   `;
