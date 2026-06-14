@@ -538,7 +538,7 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
         </div>
         <div style={{fontSize:42, fontWeight:800, color:C.crimson,
           fontFamily:"Georgia,serif", lineHeight:1.1, marginBottom:12}}>
-          Speak Sharp Club
+          Speak Sharp Society
         </div>
         <p style={{fontSize:14, color:C.textSoft, margin:"0 auto", lineHeight:1.7, maxWidth:320, textAlign:"center"}}>
           A global community to practice real conversations,{" "}
@@ -692,12 +692,15 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
       ? activeExercise.tags.split(",").map(t => t.trim()).filter(Boolean)
       : [];
 
+    const showDefaults = activeExercise.show_default_tags !== false;
     const statItems = [
-      { icon: <SvgPeople/>, label: `${total} Scenario${total!==1?"s":""}` },
-      { icon: <SvgClock/>,  label: activeExercise.timer_minutes > 0 ? `${activeExercise.timer_minutes} min` : "No limit" },
+      ...(showDefaults ? [
+        { icon: <SvgPeople/>, label: `${total} Scenario${total!==1?"s":""}` },
+        { icon: <SvgClock/>,  label: activeExercise.timer_minutes > 0 ? `${activeExercise.timer_minutes} min` : "No limit" },
+      ] : []),
       ...(customTags.length > 0
         ? customTags.map(t => ({ icon: <SvgTag/>, label: t }))
-        : [{ icon: <SvgPerson/>, label: "Solo" }]
+        : (showDefaults ? [{ icon: <SvgPerson/>, label: "Solo" }] : [])
       ),
     ];
 
@@ -760,7 +763,7 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
                 The Task
               </span>
             </div>
-            <p style={{fontSize:15, color:C.text, lineHeight:1.8, margin:"0 0 22px", paddingLeft:52}}>
+            <p style={{fontSize:15, color:C.text, lineHeight:1.8, margin:"0 0 22px"}}>
               You'll be shown a situation and the context around it. Read the situation carefully,
               then write the clearest response you can — one that communicates the core point
               directly and specifically.
@@ -779,7 +782,7 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
                 Instructions
               </span>
             </div>
-            <ul style={{margin:0, padding:"0 0 0 52px", listStyle:"none"}}>
+            <ul style={{margin:0, padding:0, listStyle:"none"}}>
               {instructions.map((item, i) => (
                 <li key={i} style={{display:"flex", alignItems:"flex-start", gap:11,
                   marginBottom: i < instructions.length-1 ? 14 : 0,
@@ -972,8 +975,8 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
       <div style={{textAlign:"center", marginBottom:44,
         animation:"sharp-fade-up 0.5s ease both"}}>
         <div style={{fontSize:36, fontWeight:800, color:C.crimson,
-          fontFamily:"Georgia,serif", letterSpacing:1, marginBottom:4}}>SHARP</div>
-        <div style={{fontSize:13, color:C.muted}}>Communication Skills Practice</div>
+          fontFamily:"Georgia,serif", letterSpacing:1, marginBottom:4}}>SPEAK SHARP</div>
+        <div style={{fontSize:13, color:C.muted}}>Gym for Conversation Skills</div>
       </div>
 
       {/* Spinner */}

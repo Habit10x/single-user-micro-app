@@ -686,7 +686,7 @@ function AlgorithmsTab() {
 // ─── Exercises Tab ────────────────────────────────────────────────────────────
 
 const EMPTY_EXERCISE = {
-  title: "", description: "", timer_minutes: 5, tags: "",
+  title: "", description: "", timer_minutes: 5, tags: "", show_default_tags: true,
 };
 
 function ExercisesTab() {
@@ -873,6 +873,14 @@ function ExercisesTab() {
           <Field label="Tags (comma-separated)" value={form.tags} onChange={ef("tags")}
             placeholder="e.g. Solo, Intermediate, Written" />
           <TimerField value={form.timer_minutes} onChange={ef("timer_minutes")} />
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+            <input type="checkbox" id="sdt-create" checked={form.show_default_tags}
+              onChange={e => setForm(f => ({ ...f, show_default_tags: e.target.checked }))}
+              style={{ width: 16, height: 16, cursor: "pointer" }} />
+            <label htmlFor="sdt-create" style={{ fontSize: 13, color: C.text, cursor: "pointer" }}>
+              Show default tags (scenario count, timer, Solo)
+            </label>
+          </div>
         </div>
       ) : !selected ? (
         <Empty icon="📁" text="Select an exercise or create a new one." />
@@ -895,6 +903,14 @@ function ExercisesTab() {
               <Field label="Tags (comma-separated)" value={form.tags} onChange={ef("tags")}
                 placeholder="e.g. Solo, Intermediate, Written" />
               <TimerField value={form.timer_minutes} onChange={ef("timer_minutes")} />
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+                <input type="checkbox" id="sdt-edit" checked={form.show_default_tags}
+                  onChange={e => setForm(f => ({ ...f, show_default_tags: e.target.checked }))}
+                  style={{ width: 16, height: 16, cursor: "pointer" }} />
+                <label htmlFor="sdt-edit" style={{ fontSize: 13, color: C.text, cursor: "pointer" }}>
+                  Show default tags (scenario count, timer, Solo)
+                </label>
+              </div>
             </>
           ) : (
             <>
@@ -934,6 +950,7 @@ function ExercisesTab() {
                     setForm({
                       title: selected.title, description: selected.description,
                       timer_minutes: selected.timer_minutes, tags: selected.tags || "",
+                      show_default_tags: selected.show_default_tags !== false,
                     });
                     setMode("editInfo");
                   }}>Edit</Btn>

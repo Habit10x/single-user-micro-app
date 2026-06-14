@@ -18,7 +18,10 @@
       "Bash(grep -rn \"e/\\\\${\" --include=\"*.js\" --include=\"*.jsx\")",
       "Bash(grep -n \"slug\\\\|/e/\\\\${\" components/ModeratorPanel.jsx)",
       "Bash(rm \"app/e/[id]/page.js\")",
-      "Bash(rmdir \"app/e/[id]\")"
+      "Bash(rmdir \"app/e/[id]\")",
+      "PowerShell(Get-ChildItem *)",
+      "PowerShell(Get-ChildItem -Path \"G:\\\\Internship Work\\\\Micro Apps\\\\Exercise-single user\\\\app\" -Recurse | Where-Object {$_.Extension -match '\\\\.\\(js|jsx|ts|tsx\\)$'} | Select-Object -First 50 FullName)",
+      "PowerShell(Get-ChildItem -Path \"G:\\\\Internship Work\\\\Micro Apps\\\\Exercise-single user\\\\lib\" -Recurse | Where-Object {$_.Extension -match '\\\\.\\(js|jsx|ts|tsx|sql\\)$'} | Select-Object FullName)"
     ]
   }
 }
