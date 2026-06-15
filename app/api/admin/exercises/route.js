@@ -26,8 +26,8 @@ export async function POST(req) {
     if (!exists) break;
   }
   const [exercise] = await sql`
-    INSERT INTO exercises (title, description, category, task_description, timer_minutes, tags, show_default_tags, slug, algorithm_id)
-    VALUES (${body.title}, ${body.description || ""}, ${body.category || ""}, ${body.task_description || ""}, ${body.timer_minutes || 5}, ${body.tags || ""}, ${body.show_default_tags !== false}, ${slug}, ${sharp?.id || null})
+    INSERT INTO exercises (title, description, category, task_description, instructions, timer_minutes, tags, show_default_tags, slug, algorithm_id)
+    VALUES (${body.title}, ${body.description || ""}, ${body.category || ""}, ${body.task_description || ""}, ${body.instructions || ""}, ${body.timer_minutes || 5}, ${body.tags || ""}, ${body.show_default_tags !== false}, ${slug}, ${sharp?.id || null})
     RETURNING *
   `;
   return NextResponse.json(exercise);

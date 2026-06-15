@@ -29,6 +29,7 @@ export async function PUT(req, { params }) {
     UPDATE exercises
     SET title = ${body.title}, description = ${body.description},
         category = ${body.category || ""}, task_description = ${body.task_description || ""},
+        instructions = ${body.instructions || ""},
         timer_minutes = ${body.timer_minutes},
         tags = ${body.tags || ""}, show_default_tags = ${body.show_default_tags !== false}
     WHERE id = ${id}

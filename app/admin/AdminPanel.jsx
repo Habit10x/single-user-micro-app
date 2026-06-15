@@ -68,89 +68,6 @@ const SelectField = ({ label, value, onChange, options }) => (
   </div>
 );
 
-const TIMER_PRESETS = [1, 2, 3, 5, 10, 15, 20, 30];
-
-// ─── Dimension definitions (used by WeightsEditor) ───────────────────────────
-
-const DIMENSIONS = [
-  { key: "directness",           label: "Directness",            desc: "Key point arrives first without softening" },
-  { key: "specificity",          label: "Specificity",           desc: "Uses concrete, available details" },
-  { key: "hierarchy",            label: "Hierarchy",             desc: "Most important item positioned first" },
-  { key: "listenerOrientation",  label: "Listener Orientation",  desc: "Shaped for this specific listener" },
-  { key: "emotionalCalibration", label: "Emotional Calibration", desc: "Tone fits the relationship & stakes" },
-  { key: "economy",              label: "Economy",               desc: "No padding or repetition" },
-  { key: "completeness",         label: "Completeness",          desc: "All needed elements present" },
-];
-
-function WeightsEditor({ value, onChange }) {
-  const active = Object.keys(value).length;
-  const total  = Object.values(value).reduce((a, b) => a + (Number(b) || 0), 0);
-
-  const toggle = key => {
-    if (key in value) {
-      const next = { ...value };
-      delete next[key];
-      onChange(next);
-    } else {
-      onChange({ ...value, [key]: 0 });
-    }
-  };
-
-  const setWeight = (key, v) => {
-    onChange({ ...value, [key]: Math.min(100, Math.max(0, Number(v) || 0)) });
-  };
-
-  return (
-    <div>
-      <div style={{ fontSize: 12, color: C.muted, marginBottom: 10 }}>
-        {active === 0
-          ? "No dimensions selected — algorithm will use its built-in per-scenario weights."
-          : "Active dimensions must sum to exactly 100%."}
-      </div>
-      {DIMENSIONS.map(dim => {
-        const enabled = dim.key in value;
-        return (
-          <div key={dim.key} style={{
-            display: "flex", alignItems: "center", gap: 10,
-            padding: "9px 12px", borderRadius: 8, marginBottom: 6,
-            background: enabled ? C.crimsonPale : C.bg,
-            border: "1px solid " + (enabled ? C.crimsonBorder : C.borderLight),
-            transition: "background 0.15s",
-          }}>
-            <input type="checkbox" checked={enabled} onChange={() => toggle(dim.key)}
-              style={{ width: 15, height: 15, cursor: "pointer", accentColor: C.crimson, flexShrink: 0 }} />
-            <div style={{ flex: 1, opacity: enabled ? 1 : 0.45 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>{dim.label}</div>
-              <div style={{ fontSize: 11, color: C.muted }}>{dim.desc}</div>
-            </div>
-            {enabled && (
-              <div style={{ display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
-                <input type="number" value={value[dim.key]} min={0} max={100}
-                  onChange={e => setWeight(dim.key, e.target.value)}
-                  style={{ ...inputStyle, width: 62, marginBottom: 0,
-                    textAlign: "right", padding: "5px 8px" }} />
-                <span style={{ fontSize: 13, color: C.muted, fontWeight: 600 }}>%</span>
-              </div>
-            )}
-          </div>
-        );
-      })}
-      {active > 0 && (
-        <div style={{
-          display: "flex", justifyContent: "flex-end", alignItems: "center",
-          gap: 8, marginTop: 4, padding: "8px 12px", borderRadius: 8,
-          background: total === 100 ? C.greenPale : "#FEE2E2",
-          border: "1px solid " + (total === 100 ? "#A7F3D0" : "#FECACA"),
-        }}>
-          <span style={{ fontSize: 12, fontWeight: 700, color: total === 100 ? C.green : C.red }}>
-            Total: {total}%
-            {total === 100 ? " ✓" : total < 100 ? ` — add ${100 - total}% more` : ` — remove ${total - 100}%`}
-          </span>
-        </div>
-      )}
-    </div>
-  );
-}
 
 const TimerField = ({ value, onChange }) => (
   <div style={{ marginBottom: 14 }}>
@@ -163,12 +80,12 @@ const TimerField = ({ value, onChange }) => (
         Enable timer
       </label>
       {value > 0 && (
-        <select value={value} onChange={e => onChange(+e.target.value)}
-          style={{ ...inputStyle, width: "auto", marginBottom: 0, padding: "7px 10px" }}>
-          {TIMER_PRESETS.map(m => (
-            <option key={m} value={m}>{m} minute{m !== 1 ? "s" : ""}</option>
-          ))}
-        </select>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <input type="number" value={value} min={1}
+            onChange={e => onChange(Math.max(1, parseInt(e.target.value) || 1))}
+            style={{ ...inputStyle, width: 72, marginBottom: 0, padding: "7px 10px", textAlign: "right" }} />
+          <span style={{ fontSize: 13, color: C.muted }}>minutes</span>
+        </div>
       )}
     </div>
   </div>
@@ -478,12 +395,11 @@ function AlgorithmsTab() {
   const [algorithms, setAlgorithms] = useState([]);
   const [loading,    setLoading]    = useState(true);
   const [selected,   setSelected]   = useState(null);
-  const [mode,       setMode]       = useState("idle"); // "idle" | "view" | "create"
+  const [mode,       setMode]       = useState("idle"); // "idle" | "view" | "create" | "edit"
   const [sharpPrompt, setSharpPrompt] = useState("");
 
   const [name,            setName]            = useState("");
   const [basePrompt,      setBasePrompt]      = useState("");
-  const [weights,         setWeights]         = useState({});
   const [outputSchema,    setOutputSchema]    = useState("");
   const [synthesisPrompt, setSynthesisPrompt] = useState("");
   const [synthesisSchema, setSynthesisSchema] = useState("");
@@ -510,7 +426,6 @@ function AlgorithmsTab() {
     setSelected(null);
     setName("");
     setBasePrompt("");
-    setWeights({});
     setOutputSchema("");
     setSynthesisPrompt("");
     setSynthesisSchema("");
@@ -518,15 +433,20 @@ function AlgorithmsTab() {
     setMode("create");
   };
 
+  const startEdit = () => {
+    setName(selected.name);
+    setBasePrompt(selected.base_prompt || "");
+    setOutputSchema(selected.output_schema || "");
+    setSynthesisPrompt(selected.synthesis_prompt || "");
+    setSynthesisSchema(selected.synthesis_schema || "");
+    setError("");
+    setMode("edit");
+  };
+
   const save = async () => {
     setError("");
     if (!name.trim())       { setError("Algorithm name is required."); return; }
     if (!basePrompt.trim()) { setError("Base prompt is required."); return; }
-    const activeCount = Object.keys(weights).length;
-    if (activeCount > 0) {
-      const total = Object.values(weights).reduce((a, b) => a + Number(b), 0);
-      if (total !== 100) { setError(`Dimension weights must sum to 100% (currently ${total}%).`); return; }
-    }
     if (outputSchema.trim()) {
       try { JSON.parse(outputSchema) } catch { setError("Output Schema is not valid JSON."); return; }
     }
@@ -534,20 +454,21 @@ function AlgorithmsTab() {
       try { JSON.parse(synthesisSchema) } catch { setError("Synthesis Output Schema is not valid JSON."); return; }
     }
     setSaving(true);
-    const res  = await fetch("/api/admin/algorithms", {
-      method: "POST",
+    const isEdit = mode === "edit";
+    const url    = isEdit ? `/api/admin/algorithms/${selected.id}` : "/api/admin/algorithms";
+    const res  = await fetch(url, {
+      method: isEdit ? "PUT" : "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        name:              name.trim(),
-        base_prompt:       basePrompt.trim(),
-        dimension_weights: weights,
-        output_schema:     outputSchema.trim()    || null,
-        synthesis_prompt:  synthesisPrompt.trim() || null,
-        synthesis_schema:  synthesisSchema.trim() || null,
+        name:             name.trim(),
+        base_prompt:      basePrompt.trim(),
+        output_schema:    outputSchema.trim()    || null,
+        synthesis_prompt: synthesisPrompt.trim() || null,
+        synthesis_schema: synthesisSchema.trim() || null,
       }),
     });
     const data = await res.json();
-    if (!res.ok) { setError(data.error || "Failed to create."); setSaving(false); return; }
+    if (!res.ok) { setError(data.error || (isEdit ? "Failed to save." : "Failed to create.")); setSaving(false); return; }
     await load();
     setSaving(false);
     await pick(data);
@@ -595,15 +516,19 @@ function AlgorithmsTab() {
       {/* ── Right: view / create ── */}
       {mode === "idle" ? (
         <Empty icon="🧠" text="Select an algorithm to view, or create a new one." />
-      ) : mode === "create" ? (
+      ) : mode === "create" || mode === "edit" ? (
         <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px" }}>
           <div style={{ display: "flex", justifyContent: "space-between",
             alignItems: "center", marginBottom: 20 }}>
             <h2 style={{ fontSize: 18, fontWeight: 700, fontFamily: "Georgia,serif",
-              color: C.text, margin: 0 }}>New Algorithm</h2>
+              color: C.text, margin: 0 }}>
+              {mode === "edit" ? `Edit: ${selected?.name}` : "New Algorithm"}
+            </h2>
             <div style={{ display: "flex", gap: 8 }}>
-              <Btn variant="ghost" onClick={() => setMode("idle")}>Cancel</Btn>
-              <Btn onClick={save} disabled={saving}>{saving ? "Creating…" : "Create"}</Btn>
+              <Btn variant="ghost" onClick={() => setMode(mode === "edit" ? "view" : "idle")}>Cancel</Btn>
+              <Btn onClick={save} disabled={saving}>
+                {saving ? (mode === "edit" ? "Saving…" : "Creating…") : (mode === "edit" ? "Save Changes" : "Create")}
+              </Btn>
             </div>
           </div>
 
@@ -635,13 +560,6 @@ function AlgorithmsTab() {
               style={{ ...inputStyle, resize: "vertical", lineHeight: 1.6,
                 fontFamily: "monospace", fontSize: 12 }} />
           </div>
-
-          <div style={{ marginBottom: 14 }}>
-            <Label>Dimension Weights</Label>
-            <WeightsEditor value={weights} onChange={setWeights} />
-          </div>
-
-          <Divider />
 
           <div style={{ marginBottom: 14 }}>
             <Label>Output Schema (JSON)</Label>
@@ -698,35 +616,8 @@ function AlgorithmsTab() {
                   : "Not used by any exercise"}
               </div>
             </div>
+            <Btn variant="ghost" onClick={startEdit}>Edit</Btn>
           </div>
-
-          {/* Weights */}
-          <div style={{ marginBottom: 20 }}>
-            <Label>Dimension Weights</Label>
-            {!selected.dimension_weights || Object.keys(selected.dimension_weights).length === 0 ? (
-              <div style={{ fontSize: 13, color: C.muted, fontStyle: "italic", padding: "8px 0" }}>
-                Uses built-in per-scenario weights (SHARP default).
-              </div>
-            ) : (
-              <div>
-                {DIMENSIONS.filter(d => d.key in selected.dimension_weights).map(d => (
-                  <div key={d.key} style={{ display: "flex", alignItems: "center", gap: 10,
-                    padding: "8px 12px", borderRadius: 7, marginBottom: 5,
-                    background: C.crimsonPale, border: "1px solid " + C.crimsonBorder }}>
-                    <div style={{ flex: 1 }}>
-                      <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>{d.label}</span>
-                      <span style={{ fontSize: 11, color: C.muted, marginLeft: 8 }}>{d.desc}</span>
-                    </div>
-                    <span style={{ fontSize: 14, fontWeight: 800, color: C.crimson }}>
-                      {selected.dimension_weights[d.key]}%
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <Divider />
 
           {/* Base Prompt */}
           <div style={{ marginBottom: 20 }}>
@@ -796,7 +687,7 @@ function AlgorithmsTab() {
 // ─── Exercises Tab ────────────────────────────────────────────────────────────
 
 const EMPTY_EXERCISE = {
-  title: "", description: "", category: "", task_description: "", timer_minutes: 5, tags: "", show_default_tags: true,
+  title: "", description: "", category: "", task_description: "", instructions: "", timer_minutes: 5, tags: "", show_default_tags: true,
 };
 
 function ExercisesTab() {
@@ -1014,6 +905,7 @@ function ExercisesTab() {
               <Field label="Category" value={form.category} onChange={ef("category")} placeholder="e.g. Articulation" />
               <TextareaField label="Description" value={form.description} onChange={ef("description")} rows={2} />
               <TextareaField label="Task Description (shown under 'The Task' on instruction page)" value={form.task_description} onChange={ef("task_description")} rows={3} placeholder="e.g. You'll be shown a situation…" />
+              <TextareaField label="Instructions (shown under 'Instructions' on instruction page — one bullet per line)" value={form.instructions} onChange={ef("instructions")} rows={4} placeholder={"e.g. All context is provided. Do not make assumptions beyond what's given.\nScores and feedback unlock after all scenarios are submitted."} />
               <Field label="Tags (comma-separated)" value={form.tags} onChange={ef("tags")}
                 placeholder="e.g. Solo, Intermediate, Written" />
               <TimerField value={form.timer_minutes} onChange={ef("timer_minutes")} />
@@ -1065,6 +957,7 @@ function ExercisesTab() {
                       title: selected.title, description: selected.description,
                       category: selected.category || "",
                       task_description: selected.task_description || "",
+                      instructions: selected.instructions || "",
                       timer_minutes: selected.timer_minutes, tags: selected.tags || "",
                       show_default_tags: selected.show_default_tags !== false,
                     });

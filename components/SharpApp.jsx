@@ -162,8 +162,8 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
   const [userEmail,   setUserEmail]   = useState("");
   const [userAnswers, setUserAnswers] = useState(null); // answers from DB for returning users
   const [loginLoading,setLoginLoading]= useState(false);
-  const [loginEnabled,setLoginEnabled]         = useState(true);
-  const [instanceLoginEnabled,setInstanceLoginEnabled] = useState(true);
+  const [loginEnabled,setLoginEnabled]         = useState(null);
+  const [instanceLoginEnabled,setInstanceLoginEnabled] = useState(null);
   const [submitting,  setSubmitting]  = useState(false);
   const [sharpResults,    setSharpResults]     = useState({});
   const [synthesisResult, setSynthesisResult]  = useState(null);
@@ -212,6 +212,10 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
     timer_minutes: 5,
   };
 
+  const STORAGE_KEY  = `sharp_user_${activeExercise.id || "default"}`;
+  const saveSession  = (data) => { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch {} };
+  const clearSession = ()     => { try { localStorage.removeItem(STORAGE_KEY); } catch {} };
+
   const total      = activeScenarios.length;
   const scenario   = activeScenarios[q-1];
 
@@ -252,12 +256,15 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
 
       if (data.submitted) {
         // Returning user — go straight to results
+        const email = emailVal.trim().toLowerCase();
         setUserName(data.name);
-        setUserEmail(emailVal.trim().toLowerCase());
+        setUserEmail(email);
         setUserAnswers(data.answers);
         if (data.sharp_results)    setSharpResults(data.sharp_results);
         if (data.synthesis_result) setSynthesisResult(data.synthesis_result);
-        if (activeExercise.id) fetchCommunityData({ exerciseId: activeExercise.id });
+        if (data.session_id)       fetchCommunityData({ sessionId: data.session_id });
+        else if (activeExercise.id) fetchCommunityData({ exerciseId: activeExercise.id });
+        saveSession({ type: "email", email });
         setScreen("results");
       } else if (!loginEnabled) {
         setLoginErr("No account found. New registrations are currently disabled.");
@@ -281,7 +288,7 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
     const answers = textsRef.current;
     setSubmitting(true);
     try {
-      await fetch("/api/submit", {
+      const submitRes  = await fetch("/api/submit", {
         method:"POST", headers:{"Content-Type":"application/json"},
         body: JSON.stringify({
           email:       instanceId ? null : userEmail,
@@ -291,8 +298,12 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
           exercise_id: activeExercise.id || null,
         }),
       });
+      const submitData = await submitRes.json();
       setUserAnswers(answers);
+      if (instanceId) saveSession({ type: "instance", instanceId, instanceName, teamName: userName });
+      else if (userEmail) saveSession({ type: "email", email: userEmail });
       if (instanceId) await fetchCommunityData({ instanceId });
+      else if (submitData.session_id) await fetchCommunityData({ sessionId: submitData.session_id });
       else if (activeExercise.id) await fetchCommunityData({ exerciseId: activeExercise.id });
       const scoreRes = await fetch("/api/score-all", {
         method:"POST", headers:{"Content-Type":"application/json"},
@@ -332,6 +343,7 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
   },[timeLeft, screen]);
 
   const doLogout = () => {
+    clearSession();
     setScreen("login");
     setUserName("");
     setUserEmail("");
@@ -353,14 +365,54 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
     setTimeLeft(null);
   };
 
-  const fetchCommunityData = async ({ instanceId, exerciseId }) => {
+  const fetchCommunityData = async ({ instanceId, sessionId, exerciseId }) => {
     try {
-      const param = instanceId ? `instance_id=${instanceId}` : `exercise_id=${exerciseId}`;
-      const res   = await fetch(`/api/community?${param}`);
-      const data  = await res.json();
+      const param = instanceId ? `instance_id=${instanceId}`
+                  : sessionId  ? `session_id=${sessionId}`
+                  : `exercise_id=${exerciseId}`;
+      const res  = await fetch(`/api/community?${param}`);
+      const data = await res.json();
       setCommunityData(data.submissions || []);
     } catch {}
   };
+
+  // Auto-restore session on page refresh
+  useEffect(() => {
+    let stored;
+    try { stored = JSON.parse(localStorage.getItem(STORAGE_KEY)); } catch { return; }
+    if (!stored) return;
+
+    (async () => {
+      try {
+        if (stored.type === "email") {
+          const exId = activeExercise.id ? `&exercise_id=${activeExercise.id}` : "";
+          const res  = await fetch(`/api/check-submission?email=${encodeURIComponent(stored.email)}${exId}`);
+          const data = await res.json();
+          if (!data.submitted) { clearSession(); return; }
+          setUserName(data.name);
+          setUserEmail(stored.email);
+          setUserAnswers(data.answers);
+          if (data.sharp_results)     setSharpResults(data.sharp_results);
+          if (data.synthesis_result)  setSynthesisResult(data.synthesis_result);
+          if (data.session_id)        fetchCommunityData({ sessionId: data.session_id });
+          else if (activeExercise.id) fetchCommunityData({ exerciseId: activeExercise.id });
+          setScreen("results");
+        } else if (stored.type === "instance") {
+          const res  = await fetch(`/api/check-submission?instance_id=${stored.instanceId}&name=${encodeURIComponent(stored.teamName)}`);
+          const data = await res.json();
+          if (!data.submitted) { clearSession(); return; }
+          setInstanceId(stored.instanceId);
+          setInstanceName(stored.instanceName);
+          setUserName(stored.teamName);
+          setUserAnswers(data.answers);
+          if (data.sharp_results)    setSharpResults(data.sharp_results);
+          if (data.synthesis_result) setSynthesisResult(data.synthesis_result);
+          await fetchCommunityData({ instanceId: stored.instanceId });
+          setScreen("results");
+        }
+      } catch { clearSession(); }
+    })();
+  }, []);
 
   const doJoinInstance = async () => {
     if (!instUserName.trim()) { setInstErr("Please enter your name."); return; }
@@ -396,6 +448,7 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
         if (checkData.sharp_results)    setSharpResults(checkData.sharp_results);
         if (checkData.synthesis_result) setSynthesisResult(checkData.synthesis_result);
         await fetchCommunityData({ instanceId: data.id });
+        saveSession({ type: "instance", instanceId: data.id, instanceName: data.name, teamName: instUserName.trim() });
         setScreen("results");
       } else {
         setScreen("start");
@@ -556,6 +609,9 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
       <div style={{background:C.card, borderRadius:16, padding:"32px 28px",
         width:"100%", maxWidth:400,
         boxShadow:"0 4px 24px rgba(0,0,0,0.07)", border:"1px solid "+C.border}}>
+        {loginEnabled === null ? (
+          <div style={{textAlign:"center", padding:"24px 0", color:C.muted, fontSize:14}}>Loading…</div>
+        ) : (<>
         <h2 style={{fontSize:22, fontWeight:700, color:C.text,
           fontFamily:"Georgia,serif", margin:"0 0 6px"}}>Welcome</h2>
         <p style={{fontSize:14, color:C.muted, margin:"0 0 26px", lineHeight:1.6}}>
@@ -636,6 +692,7 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
           </button>
         </div>
         )}
+        </>)}
       </div>
       </div>
     </div>
@@ -710,13 +767,15 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
       ),
     ];
 
-    const instructions = [
-      "All context is provided. Do not make assumptions beyond what's given.",
-      ...(activeExercise.timer_minutes > 0
-        ? ["Timed activity — responses auto-submit when the timer ends."]
-        : []),
-      "Scores and feedback unlock after all scenarios are submitted.",
-    ];
+    const instructions = activeExercise.instructions?.trim()
+      ? activeExercise.instructions.split("\n").map(s => s.trim()).filter(Boolean)
+      : [
+          "All context is provided. Do not make assumptions beyond what's given.",
+          ...(activeExercise.timer_minutes > 0
+            ? ["Timed activity — responses auto-submit when the timer ends."]
+            : []),
+          "Scores and feedback unlock after all scenarios are submitted.",
+        ];
 
     return (
       <div style={{minHeight:"100vh", background:C.bg}}>
@@ -725,7 +784,7 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
         <div style={{maxWidth:520, margin:"0 auto", padding:"20px 16px 48px"}}>
 
           {/* ── Hero card ── */}
-          <div style={{background:"#8B2020", borderRadius:20, padding:"28px 24px 26px", marginBottom:14}}>
+          <div style={{background:"#630000", borderRadius:20, padding:"28px 24px 26px", marginBottom:14}}>
             <div style={{fontSize:11, fontWeight:700, color:"#D4908A",
               letterSpacing:2.5, textTransform:"uppercase", marginBottom:10}}>
               {(activeExercise.category || "Clear Articulation").toUpperCase()}
@@ -1653,28 +1712,46 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
         {commSc_obj && (
           <div style={{background:C.card, borderRadius:12,
             border:"1px solid "+C.border, overflow:"hidden", marginBottom:14}}>
-            <div style={{padding:"13px 17px", borderBottom:"1px solid "+C.borderLight}}>
-              <div style={{fontSize:10, fontWeight:700, color:C.muted,
-                letterSpacing:1.5, textTransform:"uppercase", marginBottom:7}}>
-                Scenario {commSc}
-              </div>
-              <p style={{fontSize:14, color:C.text, lineHeight:1.7,
-                margin:0, fontStyle:"italic", fontWeight:500}}>
-                "{commSc_obj.text}"
-              </p>
-            </div>
-            <div style={{padding:"12px 17px", background:"#FDFCFB"}}>
+            <div style={{padding:"14px 18px", borderBottom:"1px solid "+C.borderLight}}>
               <div style={{fontSize:10, fontWeight:700, color:C.muted,
                 letterSpacing:1.5, textTransform:"uppercase", marginBottom:8}}>
-                Context
+                Scenario {commSc}
               </div>
-              {commSc_obj.ctx.map((c,i)=>(
-                <div key={i} style={{display:"flex", gap:8, marginBottom:5}}>
-                  <span style={{color:C.crimson, fontWeight:700, fontSize:12,
-                    flexShrink:0, marginTop:2}}>→</span>
-                  <span style={{fontSize:12, color:C.text, lineHeight:1.5}}>{c}</span>
-                </div>
-              ))}
+              <p style={{fontSize:15, color:C.text, lineHeight:1.7,
+                margin:0, fontStyle:"italic", fontWeight:500, whiteSpace:"pre-wrap"}}>
+                {commSc_obj.text}
+              </p>
+            </div>
+            <div style={{padding:"14px 18px", background:"#FDFCFB"}}>
+              {commSc_obj.ctx.filter(c => c.trim()).length > 0 && (
+                <>
+                  <div style={{fontSize:10, fontWeight:700, color:C.muted,
+                    letterSpacing:1.5, textTransform:"uppercase", marginBottom:9}}>
+                    What You Know
+                  </div>
+                  {commSc_obj.ctx.filter(c => c.trim()).map((c,i,arr)=>(
+                    <div key={i} style={{display:"flex", gap:9,
+                      marginBottom: i < arr.length - 1 ? 6 : (commSc_obj.taskText ? 14 : 0),
+                      alignItems:"flex-start"}}>
+                      <span style={{color:C.crimson, fontWeight:700, fontSize:13,
+                        flexShrink:0, marginTop:2}}>→</span>
+                      <span style={{fontSize:13, color:C.text, lineHeight:1.55}}>{c}</span>
+                    </div>
+                  ))}
+                </>
+              )}
+              {commSc_obj.taskText && (
+                <>
+                  <div style={{fontSize:10, fontWeight:700, color:C.muted,
+                    letterSpacing:1.5, textTransform:"uppercase", marginBottom:8}}>
+                    Task
+                  </div>
+                  <p style={{fontSize:15, color:C.text, lineHeight:1.7,
+                    margin:0, fontStyle:"italic", fontWeight:500, whiteSpace:"pre-wrap"}}>
+                    {commSc_obj.taskText}
+                  </p>
+                </>
+              )}
             </div>
           </div>
         )}
