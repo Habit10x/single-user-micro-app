@@ -165,7 +165,8 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
   const [loginEnabled,setLoginEnabled]         = useState(true);
   const [instanceLoginEnabled,setInstanceLoginEnabled] = useState(true);
   const [submitting,  setSubmitting]  = useState(false);
-  const [sharpResults,setSharpResults]= useState({});
+  const [sharpResults,    setSharpResults]     = useState({});
+  const [synthesisResult, setSynthesisResult]  = useState(null);
   const [timeLeft,    setTimeLeft]    = useState(null);
   const [resultsFbOpen,  setResultsFbOpen]  = useState(false);
   const [resultsScOpen,  setResultsScOpen]  = useState(false);
@@ -254,7 +255,8 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
         setUserName(data.name);
         setUserEmail(emailVal.trim().toLowerCase());
         setUserAnswers(data.answers);
-        if (data.sharp_results) setSharpResults(data.sharp_results);
+        if (data.sharp_results)    setSharpResults(data.sharp_results);
+        if (data.synthesis_result) setSynthesisResult(data.synthesis_result);
         if (activeExercise.id) fetchCommunityData({ exerciseId: activeExercise.id });
         setScreen("results");
       } else if (!loginEnabled) {
@@ -305,7 +307,8 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
         }),
       });
       const scoreData = await scoreRes.json();
-      if (scoreData.sharpResults) setSharpResults(scoreData.sharpResults);
+      if (scoreData.sharpResults)    setSharpResults(scoreData.sharpResults);
+      if (scoreData.synthesisResult) setSynthesisResult(scoreData.synthesisResult);
     } catch {}
     setSubmitting(false);
     setScreen("results");
@@ -390,7 +393,8 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
 
       if (checkData.submitted) {
         setUserAnswers(checkData.answers);
-        if (checkData.sharp_results) setSharpResults(checkData.sharp_results);
+        if (checkData.sharp_results)    setSharpResults(checkData.sharp_results);
+        if (checkData.synthesis_result) setSynthesisResult(checkData.synthesis_result);
         await fetchCommunityData({ instanceId: data.id });
         setScreen("results");
       } else {
@@ -1031,18 +1035,22 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
   // 5. RESULTS SCREEN
   // ═══════════════════════════════════════════════════════════════════════════
   const ResultsScreen = () => {
-    const didWell = activeScenarios
-      .flatMap((_,i) => sharpResults[i+1]?.whatWorked || [])
-      .filter(Boolean)
-      .slice(0, 4);
+    const didWell = synthesisResult?.whereDidWell
+      ? [synthesisResult.whereDidWell]
+      : activeScenarios
+          .flatMap((_,i) => sharpResults[i+1]?.whatWorked || [])
+          .filter(Boolean)
+          .slice(0, 4);
 
-    const lostImpact = activeScenarios
-      .flatMap((_,i) => (sharpResults[i+1]?.impacts || [])
-        .filter(imp => imp.level === "high" || imp.level === "medium")
-        .map(imp => imp.why || imp.observation)
-      )
-      .filter(Boolean)
-      .slice(0, 4);
+    const lostImpact = synthesisResult?.whereLostImpact
+      ? [synthesisResult.whereLostImpact]
+      : activeScenarios
+          .flatMap((_,i) => (sharpResults[i+1]?.impacts || [])
+            .filter(imp => imp.level === "high" || imp.level === "medium")
+            .map(imp => imp.why || imp.observation)
+          )
+          .filter(Boolean)
+          .slice(0, 4);
 
     const hasFb = didWell.length > 0 || lostImpact.length > 0;
 
@@ -1246,7 +1254,7 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
       HIGH:   { bg: C.greenPale,   color: C.green    },
       MEDIUM: { bg: C.amberPale,   color: C.amber    },
       LOW:    { bg: C.crimsonPale, color: C.crimson  },
-    }[sd.scoreConfidence] || {} : null;
+    }[sd.scoreConfidence?.toUpperCase()] || {} : null;
 
     return (
       <div onClick={()=>setScreen(fbReturnScreen)}
@@ -1317,7 +1325,7 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
                   </div>
                   <div style={{fontSize:14, color:"#fff", lineHeight:1.6,
                     fontWeight:600, fontStyle:"italic"}}>
-                    {sd.oneLiner}
+                    {sd.summary ?? sd.oneLiner}
                   </div>
                 </div>
 

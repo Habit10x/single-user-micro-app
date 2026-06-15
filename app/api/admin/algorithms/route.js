@@ -16,7 +16,7 @@ export async function GET() {
 }
 
 export async function POST(request) {
-  const { name, base_prompt, dimension_weights } = await request.json()
+  const { name, base_prompt, dimension_weights, output_schema, synthesis_prompt, synthesis_schema } = await request.json()
 
   if (!name?.trim())        return NextResponse.json({ error: "Name is required" }, { status: 400 })
   if (!base_prompt?.trim()) return NextResponse.json({ error: "Base prompt is required" }, { status: 400 })
@@ -29,10 +29,29 @@ export async function POST(request) {
     }
   }
 
+  if (output_schema?.trim()) {
+    try { JSON.parse(output_schema) } catch {
+      return NextResponse.json({ error: "Output Schema is not valid JSON" }, { status: 400 })
+    }
+  }
+
+  if (synthesis_schema?.trim()) {
+    try { JSON.parse(synthesis_schema) } catch {
+      return NextResponse.json({ error: "Synthesis Output Schema is not valid JSON" }, { status: 400 })
+    }
+  }
+
   await initAdminDb()
   const [row] = await sql`
-    INSERT INTO algorithms (name, base_prompt, dimension_weights)
-    VALUES (${name.trim()}, ${base_prompt.trim()}, ${JSON.stringify(weights)})
+    INSERT INTO algorithms (name, base_prompt, dimension_weights, output_schema, synthesis_prompt, synthesis_schema)
+    VALUES (
+      ${name.trim()},
+      ${base_prompt.trim()},
+      ${JSON.stringify(weights)},
+      ${output_schema?.trim() || null},
+      ${synthesis_prompt?.trim() || null},
+      ${synthesis_schema?.trim() || null}
+    )
     RETURNING *
   `
   return NextResponse.json(row, { status: 201 })

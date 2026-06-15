@@ -481,11 +481,14 @@ function AlgorithmsTab() {
   const [mode,       setMode]       = useState("idle"); // "idle" | "view" | "create"
   const [sharpPrompt, setSharpPrompt] = useState("");
 
-  const [name,       setName]       = useState("");
-  const [basePrompt, setBasePrompt] = useState("");
-  const [weights,    setWeights]    = useState({});
-  const [saving,     setSaving]     = useState(false);
-  const [error,      setError]      = useState("");
+  const [name,            setName]            = useState("");
+  const [basePrompt,      setBasePrompt]      = useState("");
+  const [weights,         setWeights]         = useState({});
+  const [outputSchema,    setOutputSchema]    = useState("");
+  const [synthesisPrompt, setSynthesisPrompt] = useState("");
+  const [synthesisSchema, setSynthesisSchema] = useState("");
+  const [saving,          setSaving]          = useState(false);
+  const [error,           setError]           = useState("");
 
   const load = useCallback(async () => {
     const data = await fetch("/api/admin/algorithms").then(r => r.json());
@@ -508,6 +511,9 @@ function AlgorithmsTab() {
     setName("");
     setBasePrompt("");
     setWeights({});
+    setOutputSchema("");
+    setSynthesisPrompt("");
+    setSynthesisSchema("");
     setError("");
     setMode("create");
   };
@@ -521,11 +527,24 @@ function AlgorithmsTab() {
       const total = Object.values(weights).reduce((a, b) => a + Number(b), 0);
       if (total !== 100) { setError(`Dimension weights must sum to 100% (currently ${total}%).`); return; }
     }
+    if (outputSchema.trim()) {
+      try { JSON.parse(outputSchema) } catch { setError("Output Schema is not valid JSON."); return; }
+    }
+    if (synthesisSchema.trim()) {
+      try { JSON.parse(synthesisSchema) } catch { setError("Synthesis Output Schema is not valid JSON."); return; }
+    }
     setSaving(true);
     const res  = await fetch("/api/admin/algorithms", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: name.trim(), base_prompt: basePrompt.trim(), dimension_weights: weights }),
+      body: JSON.stringify({
+        name:              name.trim(),
+        base_prompt:       basePrompt.trim(),
+        dimension_weights: weights,
+        output_schema:     outputSchema.trim()    || null,
+        synthesis_prompt:  synthesisPrompt.trim() || null,
+        synthesis_schema:  synthesisSchema.trim() || null,
+      }),
     });
     const data = await res.json();
     if (!res.ok) { setError(data.error || "Failed to create."); setSaving(false); return; }
@@ -621,6 +640,38 @@ function AlgorithmsTab() {
             <Label>Dimension Weights</Label>
             <WeightsEditor value={weights} onChange={setWeights} />
           </div>
+
+          <Divider />
+
+          <div style={{ marginBottom: 14 }}>
+            <Label>Output Schema (JSON)</Label>
+            <div style={{ fontSize: 12, color: C.muted, marginBottom: 6 }}>
+              Paste the JSON example the AI should return per scenario. Leave empty to use SHARP default.
+            </div>
+            <textarea value={outputSchema} onChange={e => setOutputSchema(e.target.value)} rows={10}
+              placeholder={'{\n  "score": 4.3,\n  "summary": "...",\n  "whatWorked": ["..."],\n  "impacts": []\n}'}
+              style={{ ...inputStyle, resize: "vertical", lineHeight: 1.6, fontFamily: "monospace", fontSize: 12 }} />
+          </div>
+
+          <div style={{ marginBottom: 14 }}>
+            <Label>Synthesis Prompt <span style={{ fontWeight: 400, color: C.muted }}>(optional)</span></Label>
+            <div style={{ fontSize: 12, color: C.muted, marginBottom: 6 }}>
+              If filled, runs once after all scenarios are scored to generate cross-pattern feedback. Leave empty to skip synthesis.
+            </div>
+            <textarea value={synthesisPrompt} onChange={e => setSynthesisPrompt(e.target.value)} rows={12}
+              placeholder="Paste your synthesis prompt here. It receives all per-scenario scores as input."
+              style={{ ...inputStyle, resize: "vertical", lineHeight: 1.6, fontFamily: "monospace", fontSize: 12 }} />
+          </div>
+
+          <div style={{ marginBottom: 24 }}>
+            <Label>Synthesis Output Schema (JSON) <span style={{ fontWeight: 400, color: C.muted }}>(optional)</span></Label>
+            <div style={{ fontSize: 12, color: C.muted, marginBottom: 6 }}>
+              JSON format for synthesis output. Required if Synthesis Prompt is filled.
+            </div>
+            <textarea value={synthesisSchema} onChange={e => setSynthesisSchema(e.target.value)} rows={10}
+              placeholder={'{\n  "whereDidWell": "...",\n  "whereLostImpact": "..."\n}'}
+              style={{ ...inputStyle, resize: "vertical", lineHeight: 1.6, fontFamily: "monospace", fontSize: 12 }} />
+          </div>
         </div>
       ) : selected && (
         <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px" }}>
@@ -678,7 +729,7 @@ function AlgorithmsTab() {
           <Divider />
 
           {/* Base Prompt */}
-          <div style={{ marginBottom: 14 }}>
+          <div style={{ marginBottom: 20 }}>
             <Label>Base Prompt</Label>
             <pre style={{ background: C.bg, border: "1px solid " + C.borderLight,
               borderRadius: 8, padding: "14px 16px", fontSize: 12, lineHeight: 1.65,
@@ -687,6 +738,55 @@ function AlgorithmsTab() {
               {selected.base_prompt || "(no prompt stored)"}
             </pre>
           </div>
+
+          <Divider />
+
+          {/* Output Schema */}
+          <div style={{ marginBottom: 20 }}>
+            <Label>Output Schema</Label>
+            {selected.output_schema ? (
+              <pre style={{ background: C.bg, border: "1px solid " + C.borderLight,
+                borderRadius: 8, padding: "14px 16px", fontSize: 12, lineHeight: 1.65,
+                color: C.text, fontFamily: "monospace", whiteSpace: "pre-wrap",
+                wordBreak: "break-word", maxHeight: 300, overflowY: "auto", margin: 0 }}>
+                {selected.output_schema}
+              </pre>
+            ) : (
+              <div style={{ fontSize: 13, color: C.muted, fontStyle: "italic", padding: "8px 0" }}>
+                Uses SHARP default output format.
+              </div>
+            )}
+          </div>
+
+          {/* Synthesis Prompt */}
+          <div style={{ marginBottom: 20 }}>
+            <Label>Synthesis Prompt</Label>
+            {selected.synthesis_prompt ? (
+              <pre style={{ background: C.bg, border: "1px solid " + C.borderLight,
+                borderRadius: 8, padding: "14px 16px", fontSize: 12, lineHeight: 1.65,
+                color: C.text, fontFamily: "monospace", whiteSpace: "pre-wrap",
+                wordBreak: "break-word", maxHeight: 300, overflowY: "auto", margin: 0 }}>
+                {selected.synthesis_prompt}
+              </pre>
+            ) : (
+              <div style={{ fontSize: 13, color: C.muted, fontStyle: "italic", padding: "8px 0" }}>
+                No synthesis — "Your Feedback" uses per-scenario results directly.
+              </div>
+            )}
+          </div>
+
+          {/* Synthesis Schema */}
+          {selected.synthesis_schema && (
+            <div style={{ marginBottom: 14 }}>
+              <Label>Synthesis Output Schema</Label>
+              <pre style={{ background: C.bg, border: "1px solid " + C.borderLight,
+                borderRadius: 8, padding: "14px 16px", fontSize: 12, lineHeight: 1.65,
+                color: C.text, fontFamily: "monospace", whiteSpace: "pre-wrap",
+                wordBreak: "break-word", maxHeight: 200, overflowY: "auto", margin: 0 }}>
+                {selected.synthesis_schema}
+              </pre>
+            </div>
+          )}
         </div>
       )}
     </div>

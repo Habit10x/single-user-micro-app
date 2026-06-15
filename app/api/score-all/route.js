@@ -99,6 +99,28 @@ function buildGenericContext(meta, exerciseTitle) {
   }
 }
 
+function buildParticipantData(sharpResults) {
+  return Object.entries(sharpResults)
+    .sort(([a], [b]) => parseInt(a) - parseInt(b))
+    .map(([pos, r]) => {
+      const summary    = r.summary || r.oneLiner || ""
+      const whatWorked = Array.isArray(r.whatWorked) ? r.whatWorked.join(" ") : (r.whatWorked || "")
+      const topImpact  = r.impacts?.[0]?.observation || ""
+      const dims       = r.dimensionScores
+        ? Object.entries(r.dimensionScores).map(([k, v]) => `${k}: ${v}`).join(", ")
+        : ""
+      return [
+        `SCENARIO ${pos}:`,
+        `- Score: ${r.score}/10`,
+        dims ? `- Dimension scores: ${dims}` : "",
+        `- Summary: "${summary}"`,
+        whatWorked ? `- What worked: "${whatWorked}"` : "",
+        topImpact  ? `- Primary impact: "${topImpact}"` : "",
+      ].filter(Boolean).join("\n")
+    })
+    .join("\n\n")
+}
+
 export async function POST(request) {
   try {
     const { answers, email, name, instance_id, exercise_id, exerciseTitle, scenarios: clientScenarios } =
@@ -123,7 +145,8 @@ export async function POST(request) {
             ORDER BY es.order_index
           `,
           sql`
-            SELECT a.base_prompt, a.dimension_weights, a.name
+            SELECT a.base_prompt, a.dimension_weights, a.name,
+                   a.output_schema, a.synthesis_prompt, a.synthesis_schema
             FROM algorithms a
             JOIN exercises e ON e.algorithm_id = a.id
             WHERE e.id = ${parseInt(exercise_id)}
@@ -138,8 +161,9 @@ export async function POST(request) {
     }
 
     // Resolved algorithm values — null means use hardcoded SHARP defaults
-    const customBasePrompt = algorithm?.base_prompt?.trim() || null
-    const algoWeights      = algorithm?.dimension_weights && Object.keys(algorithm.dimension_weights).length > 0
+    const customBasePrompt   = algorithm?.base_prompt?.trim()     || null
+    const customOutputSchema = algorithm?.output_schema?.trim()   || null
+    const algoWeights        = algorithm?.dimension_weights && Object.keys(algorithm.dimension_weights).length > 0
       ? algorithm.dimension_weights
       : null
 
@@ -166,7 +190,7 @@ export async function POST(request) {
       if (algoWeights) context = { ...context, dimensionsWeights: algoWeights }
 
       try {
-        const result = await sharpEngine(userResponse, context, customBasePrompt)
+        const result = await sharpEngine(userResponse, context, customBasePrompt, customOutputSchema)
         return [pos, result]
       } catch (err) {
         console.error(`[score-all] scenario pos ${pos} failed:`, err?.status ?? "", err?.message, err?.error ? JSON.stringify(err.error) : "")
@@ -189,6 +213,19 @@ export async function POST(request) {
     const results = await Promise.all(scoringPromises)
     const sharpResults = Object.fromEntries(results)
 
+    // Synthesis phase — runs after per-scenario scoring if algorithm defines a synthesis_prompt
+    let synthesisResult = null
+    const synthPrompt = algorithm?.synthesis_prompt?.trim() || null
+    if (synthPrompt) {
+      try {
+        const synthSchema = algorithm?.synthesis_schema?.trim() || null
+        const participantData = buildParticipantData(sharpResults)
+        synthesisResult = await sharpEngine(participantData, {}, synthPrompt, synthSchema)
+      } catch (synthErr) {
+        console.error("[score-all] synthesis failed (non-fatal):", synthErr?.message)
+      }
+    }
+
     // Save results to DB (best-effort)
     try {
       await initDb()
@@ -196,20 +233,23 @@ export async function POST(request) {
       if (instance_id && name) {
         await sql`
           UPDATE submissions
-          SET sharp_results = ${JSON.stringify(sharpResults)}
+          SET sharp_results    = ${JSON.stringify(sharpResults)},
+              synthesis_result = ${synthesisResult ? JSON.stringify(synthesisResult) : null}
           WHERE instance_id = ${parseInt(instance_id)}
           AND LOWER(TRIM(name)) = LOWER(TRIM(${name}))
         `
       } else if (email && exId) {
         await sql`
           UPDATE submissions
-          SET sharp_results = ${JSON.stringify(sharpResults)}
+          SET sharp_results    = ${JSON.stringify(sharpResults)},
+              synthesis_result = ${synthesisResult ? JSON.stringify(synthesisResult) : null}
           WHERE email = ${email.toLowerCase().trim()} AND exercise_id = ${exId}
         `
       } else if (email) {
         await sql`
           UPDATE submissions
-          SET sharp_results = ${JSON.stringify(sharpResults)}
+          SET sharp_results    = ${JSON.stringify(sharpResults)},
+              synthesis_result = ${synthesisResult ? JSON.stringify(synthesisResult) : null}
           WHERE email = ${email.toLowerCase().trim()}
         `
       }
@@ -217,7 +257,7 @@ export async function POST(request) {
       console.error("[score-all] DB save failed (non-fatal):", dbErr?.message)
     }
 
-    return NextResponse.json({ sharpResults })
+    return NextResponse.json({ sharpResults, synthesisResult })
   } catch (err) {
     console.error("[score-all] fatal error:", err)
     return NextResponse.json(
