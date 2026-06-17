@@ -1213,6 +1213,33 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
                         ))}
                       </div>
                     )}
+                    {synthesisResult && Object.entries(synthesisResult)
+                      .filter(([k]) => k !== 'whereDidWell' && k !== 'whereLostImpact' && synthesisResult[k])
+                      .map(([k, v]) => {
+                        const label = k.replace(/([A-Z])/g,' $1').replace(/^./,c=>c.toUpperCase())
+                        return (
+                          <div key={k} style={{marginTop:16}}>
+                            <div style={{fontSize:11, fontWeight:700, color:C.muted,
+                              letterSpacing:1.5, textTransform:"uppercase", marginBottom:10}}>
+                              {label}
+                            </div>
+                            {typeof v === 'string' && (
+                              <p style={{fontSize:13, color:C.text, lineHeight:1.65, margin:0}}>{v}</p>
+                            )}
+                            {Array.isArray(v) && v.map((item,i) => (
+                              <div key={i} style={{display:"flex", gap:10,
+                                marginBottom:i<v.length-1?10:0, alignItems:"flex-start"}}>
+                                <span style={{width:6, height:6, borderRadius:"50%",
+                                  background:C.muted, flexShrink:0, marginTop:7}}/>
+                                <span style={{fontSize:13, color:C.text, lineHeight:1.65}}>
+                                  {typeof item==='string'?item:JSON.stringify(item)}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )
+                      })
+                    }
                   </>
                 )}
               </div>
@@ -1309,11 +1336,105 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
       return                         { bg: C.tag,          border: C.border,        lc: C.muted };
     };
 
-    const confidenceBadge = sd ? {
+    const confidenceBadge = sd ? ({
       HIGH:   { bg: C.greenPale,   color: C.green    },
       MEDIUM: { bg: C.amberPale,   color: C.amber    },
       LOW:    { bg: C.crimsonPale, color: C.crimson  },
-    }[sd.scoreConfidence?.toUpperCase()] || {} : null;
+    }[sd.scoreConfidence?.toUpperCase()] ?? null) : null;
+
+    const KNOWN = new Set(['score','scoreConfidence','pointFirst','dimensionScores','oneLiner','summary','whatWorked','impacts','_error'])
+    const camelLabel = k => k.replace(/([A-Z])/g,' $1').replace(/^./,c=>c.toUpperCase())
+    const renderExtra = (k, v) => {
+      if (v === null || v === undefined) return null
+      const label = camelLabel(k)
+      if (typeof v === 'string') {
+        if (!v.trim()) return null
+        return (
+          <div key={k} style={{background:"#1C1C1C", borderRadius:10,
+            padding:"13px 16px", marginBottom:14}}>
+            <div style={{fontSize:9, fontWeight:700, color:"#888",
+              letterSpacing:1.5, textTransform:"uppercase", marginBottom:5}}>{label}</div>
+            <div style={{fontSize:13, color:"#fff", lineHeight:1.6, fontStyle:"italic"}}>{v}</div>
+          </div>
+        )
+      }
+      if (Array.isArray(v) && v.length > 0) {
+        if (typeof v[0] === 'string') {
+          return (
+            <div key={k} style={{background:C.bg, borderRadius:10,
+              padding:"13px 16px", marginBottom:14, border:"1px solid "+C.borderLight}}>
+              <div style={{fontSize:9, fontWeight:700, color:C.muted,
+                letterSpacing:1.5, textTransform:"uppercase", marginBottom:8}}>{label}</div>
+              {v.map((item,i) => (
+                <div key={i} style={{display:"flex", gap:8, marginBottom:i<v.length-1?7:0}}>
+                  <span style={{color:C.muted, fontWeight:700, flexShrink:0}}>•</span>
+                  <span style={{fontSize:13, color:C.text, lineHeight:1.6}}>{item}</span>
+                </div>
+              ))}
+            </div>
+          )
+        }
+        if (typeof v[0] === 'object' && v[0] !== null) {
+          return (
+            <div key={k}>
+              <div style={{fontSize:9, fontWeight:700, color:C.muted,
+                letterSpacing:1.5, textTransform:"uppercase", marginBottom:9}}>{label}</div>
+              {v.map((card,i) => {
+                const is = impactStyle(card.level)
+                return (
+                  <div key={i} style={{background:is.bg, border:"1px solid "+is.border,
+                    borderRadius:10, padding:"12px 15px", marginBottom:9}}>
+                    {card.level && (
+                      <div style={{marginBottom:7}}>
+                        <span style={{fontSize:9, fontWeight:700, color:is.lc,
+                          letterSpacing:1.2, textTransform:"uppercase",
+                          border:"1px solid "+is.lc, borderRadius:4, padding:"1px 5px"}}>
+                          {card.level}
+                        </span>
+                      </div>
+                    )}
+                    {Object.entries(card).filter(([ck])=>ck!=='level').map(([ck,cv])=>(
+                      <p key={ck} style={{fontSize:13, color:C.text,
+                        lineHeight:1.6, margin:"0 0 5px"}}>{String(cv)}</p>
+                    ))}
+                  </div>
+                )
+              })}
+            </div>
+          )
+        }
+      }
+      if (typeof v === 'number') {
+        const pct = Math.round((v/10)*100)
+        const bc  = v>=8?C.green:v>=6?C.amber:C.red
+        return (
+          <div key={k} style={{marginBottom:14}}>
+            <div style={{display:"flex", justifyContent:"space-between",
+              alignItems:"center", marginBottom:4}}>
+              <span style={{fontSize:12, color:C.textSoft, fontWeight:500}}>{label}</span>
+              <span style={{fontSize:12, fontWeight:700, color:bc}}>{v}/10</span>
+            </div>
+            <div style={{height:5, background:C.borderLight, borderRadius:99}}>
+              <div style={{height:"100%", width:pct+"%", background:bc, borderRadius:99}}/>
+            </div>
+          </div>
+        )
+      }
+      if (typeof v === 'boolean') {
+        return (
+          <div key={k} style={{marginBottom:14}}>
+            <span style={{display:"inline-flex", alignItems:"center", gap:5,
+              background:v?C.greenPale:C.crimsonPale,
+              border:"1px solid "+(v?C.green:C.crimsonBorder),
+              padding:"5px 13px", borderRadius:99,
+              fontSize:12, fontWeight:600, color:v?C.green:C.crimson}}>
+              {v?"✅":"❌"} {label}
+            </span>
+          </div>
+        )
+      }
+      return null
+    }
 
     return (
       <div onClick={()=>setScreen(fbReturnScreen)}
@@ -1362,34 +1483,38 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
 
           <div style={{padding:"18px 20px 22px"}}>
 
-            {/* ── Point First badge ── */}
-            <div style={{marginBottom:16}}>
-              <span style={{display:"inline-flex", alignItems:"center", gap:5,
-                background:pf?C.greenPale:C.crimsonPale,
-                border:"1px solid "+(pf?C.green:C.crimsonBorder),
-                padding:"5px 13px", borderRadius:99,
-                fontSize:12, fontWeight:600, color:pf?C.green:C.crimson}}>
-                {pf?"✅ Led with the point":"❌ Key point buried"}
-              </span>
-            </div>
+            {/* ── Point First badge — only shown if algorithm returns pointFirst ── */}
+            {pf !== undefined && (
+              <div style={{marginBottom:16}}>
+                <span style={{display:"inline-flex", alignItems:"center", gap:5,
+                  background:pf?C.greenPale:C.crimsonPale,
+                  border:"1px solid "+(pf?C.green:C.crimsonBorder),
+                  padding:"5px 13px", borderRadius:99,
+                  fontSize:12, fontWeight:600, color:pf?C.green:C.crimson}}>
+                  {pf?"✅ Led with the point":"❌ Key point buried"}
+                </span>
+              </div>
+            )}
 
             {sd ? (
               <>
-                {/* ── One-liner summary ── */}
-                <div style={{background:"#1C1C1C", borderRadius:10,
-                  padding:"13px 16px", marginBottom:14}}>
-                  <div style={{fontSize:9, fontWeight:700, color:"#888",
-                    letterSpacing:1.5, textTransform:"uppercase", marginBottom:5}}>
-                    Summary
+                {/* ── One-liner summary — only shown if field present ── */}
+                {(sd.summary ?? sd.oneLiner) && (
+                  <div style={{background:"#1C1C1C", borderRadius:10,
+                    padding:"13px 16px", marginBottom:14}}>
+                    <div style={{fontSize:9, fontWeight:700, color:"#888",
+                      letterSpacing:1.5, textTransform:"uppercase", marginBottom:5}}>
+                      Summary
+                    </div>
+                    <div style={{fontSize:14, color:"#fff", lineHeight:1.6,
+                      fontWeight:600, fontStyle:"italic"}}>
+                      {sd.summary ?? sd.oneLiner}
+                    </div>
                   </div>
-                  <div style={{fontSize:14, color:"#fff", lineHeight:1.6,
-                    fontWeight:600, fontStyle:"italic"}}>
-                    {sd.summary ?? sd.oneLiner}
-                  </div>
-                </div>
+                )}
 
-                {/* ── Dimension scores ── */}
-                {Object.keys(sd.dimensionScores).length > 0 && (
+                {/* ── Dimension scores — only shown if field present and non-empty ── */}
+                {sd.dimensionScores && Object.keys(sd.dimensionScores).length > 0 && (
                   <div style={{background:C.bg, borderRadius:10,
                     padding:"13px 16px", marginBottom:14,
                     border:"1px solid "+C.borderLight}}>
@@ -1481,6 +1606,9 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
                     })}
                   </>
                 )}
+
+                {/* ── Extra fields from algorithm output schema ── */}
+                {Object.entries(sd).filter(([k])=>!KNOWN.has(k)).map(([k,v])=>renderExtra(k,v))}
               </>
             ) : (
               /* Fallback: hardcoded feedback while scoring or if no SHARP data */
@@ -1576,9 +1704,9 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
                     fontWeight:800, fontSize:22, padding:"6px 20px", borderRadius:30}}>
                     {result.score}/10
                   </span>
-                  {result.oneLiner && (
+                  {(result.summary ?? result.oneLiner) && (
                     <p style={{fontSize:13, color:C.textSoft, margin:"12px 0 0",
-                      fontStyle:"italic", lineHeight:1.6}}>"{result.oneLiner}"</p>
+                      fontStyle:"italic", lineHeight:1.6}}>"{result.summary ?? result.oneLiner}"</p>
                   )}
                 </div>
 

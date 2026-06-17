@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { sharpEngine } from "../../../lib/scoring/sharp-engine"
+import { sharpEngine, sharpEngineBatched } from "../../../lib/scoring/sharp-engine"
 import sql, { initDb } from "../../../lib/db"
 
 export const dynamic = "force-dynamic"
@@ -130,34 +130,36 @@ export async function POST(request) {
       return NextResponse.json({ error: "Missing answers" }, { status: 400 })
     }
 
-    // Fetch authoritative scenarios + algorithm from DB — never trust client-sent scenario data.
+    // Fetch authoritative scenarios + algorithm + scoring mode from DB
     let dbScenarios = null
     let algorithm   = null
-    if (exercise_id) {
-      try {
-        await initDb()
-        const [scenarioRows, algoRows] = await Promise.all([
-          sql`
-            SELECT s.short_title, s.prompt, s.context
-            FROM scenarios s
-            JOIN exercise_scenarios es ON es.scenario_id = s.id
-            WHERE es.exercise_id = ${parseInt(exercise_id)}
-            ORDER BY es.order_index
-          `,
-          sql`
-            SELECT a.base_prompt, a.dimension_weights, a.name,
-                   a.output_schema, a.synthesis_prompt, a.synthesis_schema
-            FROM algorithms a
-            JOIN exercises e ON e.algorithm_id = a.id
-            WHERE e.id = ${parseInt(exercise_id)}
-            LIMIT 1
-          `,
-        ])
-        if (scenarioRows.length > 0) dbScenarios = scenarioRows
-        if (algoRows.length > 0)     algorithm   = algoRows[0]
-      } catch (dbErr) {
-        console.warn("[score-all] Could not fetch from DB, falling back to defaults:", dbErr?.message)
-      }
+    let scoringMode = "parallel" // default
+    try {
+      await initDb()
+      const [scenarioRows, algoRows, settingRows] = await Promise.all([
+        exercise_id ? sql`
+          SELECT s.short_title, s.prompt, s.context
+          FROM scenarios s
+          JOIN exercise_scenarios es ON es.scenario_id = s.id
+          WHERE es.exercise_id = ${parseInt(exercise_id)}
+          ORDER BY es.order_index
+        ` : Promise.resolve([]),
+        exercise_id ? sql`
+          SELECT a.base_prompt, a.dimension_weights, a.name,
+                 a.output_schema, a.synthesis_prompt, a.synthesis_schema
+          FROM algorithms a
+          JOIN exercises e ON e.algorithm_id = a.id
+          WHERE e.id = ${parseInt(exercise_id)}
+          LIMIT 1
+        ` : Promise.resolve([]),
+        sql`SELECT value FROM settings WHERE key = 'scoring_mode' LIMIT 1`,
+      ])
+      if (scenarioRows.length > 0) dbScenarios = scenarioRows
+      if (algoRows.length > 0)     algorithm   = algoRows[0]
+      if (settingRows[0]?.value)   scoringMode = settingRows[0].value
+      console.log(`[score-all] algorithm resolved: ${algorithm ? `"${algorithm.name}"` : "SHARP default"} | mode: ${scoringMode}`)
+    } catch (dbErr) {
+      console.warn("[score-all] Could not fetch from DB, falling back to defaults:", dbErr?.message)
     }
 
     // Resolved algorithm values — null means use hardcoded SHARP defaults
@@ -167,15 +169,24 @@ export async function POST(request) {
       ? algorithm.dimension_weights
       : null
 
-    // Score all non-empty answers in parallel
+    // Build context for each non-empty answer
     const entries = Object.entries(answers).filter(
       ([, text]) => typeof text === "string" && text.trim().length > 0
     )
 
-    const scoringPromises = entries.map(async ([pos, userResponse]) => {
-      const position = parseInt(pos) - 1 // 0-indexed position into scenarios array
+    const errorFallback = (pos) => [pos, {
+      score: 5,
+      scoreConfidence: "LOW",
+      pointFirst: false,
+      dimensionScores: {},
+      oneLiner: "Scoring unavailable for this response.",
+      whatWorked: ["The response was submitted and recorded."],
+      impacts: [],
+      _error: true,
+    }]
 
-      // Build context from DB scenarios (or client fallback)
+    const buildContext = (pos) => {
+      const position = parseInt(pos) - 1
       let context
       if (dbScenarios?.[position]) {
         const row  = dbScenarios[position]
@@ -185,33 +196,40 @@ export async function POST(request) {
         const meta = clientScenarios?.[position]
         context    = SHARP_CONTEXTS[meta?.shortTitle] || buildGenericContext(meta, exerciseTitle)
       }
-
-      // Override weights if algorithm has custom ones
       if (algoWeights) context = { ...context, dimensionsWeights: algoWeights }
+      return context
+    }
 
+    let sharpResults
+
+    if (scoringMode === "batched" && entries.length > 0) {
+      // ── BATCHED: one API call for all scenarios ──────────────────────────────
+      const contextsMap = Object.fromEntries(entries.map(([pos]) => [pos, buildContext(pos)]))
       try {
-        const result = await sharpEngine(userResponse, context, customBasePrompt, customOutputSchema)
-        return [pos, result]
+        sharpResults = await sharpEngineBatched(entries, contextsMap, customBasePrompt, customOutputSchema)
+        // Fill in any positions the model skipped
+        for (const [pos] of entries) {
+          if (!sharpResults[pos]) sharpResults[pos] = errorFallback(pos)[1]
+        }
       } catch (err) {
-        console.error(`[score-all] scenario pos ${pos} failed:`, err?.status ?? "", err?.message, err?.error ? JSON.stringify(err.error) : "")
-        return [
-          pos,
-          {
-            score: 5,
-            scoreConfidence: "LOW",
-            pointFirst: false,
-            dimensionScores: {},
-            oneLiner: "Scoring unavailable for this response.",
-            whatWorked: ["The response was submitted and recorded."],
-            impacts: [],
-            _error: true,
-          },
-        ]
+        console.error("[score-all] batched call failed, falling back to error results:", err?.message)
+        sharpResults = Object.fromEntries(entries.map(([pos]) => errorFallback(pos)))
       }
-    })
-
-    const results = await Promise.all(scoringPromises)
-    const sharpResults = Object.fromEntries(results)
+    } else {
+      // ── PARALLEL: one API call per scenario (default) ────────────────────────
+      const scoringPromises = entries.map(async ([pos, userResponse]) => {
+        const context = buildContext(pos)
+        try {
+          const result = await sharpEngine(userResponse, context, customBasePrompt, customOutputSchema)
+          return [pos, result]
+        } catch (err) {
+          console.error(`[score-all] scenario pos ${pos} failed:`, err?.status ?? "", err?.message)
+          return errorFallback(pos)
+        }
+      })
+      const results = await Promise.all(scoringPromises)
+      sharpResults = Object.fromEntries(results)
+    }
 
     // Synthesis phase — runs after per-scenario scoring if algorithm defines a synthesis_prompt
     let synthesisResult = null
@@ -257,7 +275,11 @@ export async function POST(request) {
       console.error("[score-all] DB save failed (non-fatal):", dbErr?.message)
     }
 
-    return NextResponse.json({ sharpResults, synthesisResult })
+    return NextResponse.json({
+      sharpResults,
+      synthesisResult,
+      _algorithmUsed: algorithm ? { id: algorithm.name, name: algorithm.name, hasCustomPrompt: !!customBasePrompt, hasCustomSchema: !!customOutputSchema } : { name: "SHARP_DEFAULT", hasCustomPrompt: false, hasCustomSchema: false },
+    })
   } catch (err) {
     console.error("[score-all] fatal error:", err)
     return NextResponse.json(

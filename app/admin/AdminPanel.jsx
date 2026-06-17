@@ -1466,6 +1466,7 @@ function InstancesTab() {
 function SettingsTab() {
   const [loginEnabled,    setLoginEnabled]    = useState(null);
   const [instanceEnabled, setInstanceEnabled] = useState(null);
+  const [scoringMode,     setScoringMode]     = useState(null);
   const [saving, setSaving] = useState(null); // key being saved
 
   useEffect(() => {
@@ -1474,8 +1475,9 @@ function SettingsTab() {
       .then(d => {
         setLoginEnabled(d.login_enabled === "true");
         setInstanceEnabled(d.instance_login_enabled !== "false");
+        setScoringMode(d.scoring_mode || "parallel");
       })
-      .catch(() => { setLoginEnabled(true); setInstanceEnabled(true); });
+      .catch(() => { setLoginEnabled(true); setInstanceEnabled(true); setScoringMode("parallel"); });
   }, []);
 
   const saveSetting = async (key, value, setter) => {
@@ -1489,7 +1491,7 @@ function SettingsTab() {
     setSaving(null);
   };
 
-  if (loginEnabled === null) return <div style={{ padding: 40, color: C.muted }}>Loading…</div>;
+  if (loginEnabled === null || scoringMode === null) return <div style={{ padding: 40, color: C.muted }}>Loading…</div>;
 
   const ToggleCard = ({ title, description, enabled, settingKey, onToggle }) => (
     <div style={{ background: C.card, border: "1px solid " + C.border,
@@ -1550,6 +1552,50 @@ function SettingsTab() {
           : "The 'Join as a team' PIN option is hidden from the login page."}
         onToggle={() => saveSetting("instance_login_enabled", !instanceEnabled, setInstanceEnabled)}
       />
+
+      {/* ── Scoring Mode ── */}
+      <div style={{ background: C.card, border: "1px solid " + C.border,
+        borderRadius: 12, padding: "20px 22px", marginBottom: 14 }}>
+        <div style={{ fontWeight: 700, fontSize: 15, color: C.text, marginBottom: 5 }}>
+          Scoring Mode
+        </div>
+        <div style={{ fontSize: 13, color: C.muted, lineHeight: 1.55, marginBottom: 16 }}>
+          {scoringMode === "batched"
+            ? "Batched — all scenarios are sent in one API call. Saves ~50% input tokens. Quality may vary slightly due to shared context window."
+            : "Parallel — each scenario is scored in its own API call. Maximum scoring accuracy, results arrive simultaneously."}
+        </div>
+        <div style={{ display: "flex", gap: 10 }}>
+          {["parallel", "batched"].map(mode => {
+            const active = scoringMode === mode;
+            return (
+              <button key={mode}
+                onClick={() => !active && saveSetting("scoring_mode", mode, setScoringMode)}
+                disabled={saving === "scoring_mode" || active}
+                style={{
+                  flex: 1, padding: "10px 0", borderRadius: 8, border: "2px solid",
+                  borderColor: active ? C.crimson : C.border,
+                  background: active ? C.crimsonPale : C.bg,
+                  color: active ? C.crimson : C.muted,
+                  fontWeight: 700, fontSize: 13, cursor: active ? "default" : "pointer",
+                  opacity: saving === "scoring_mode" ? 0.6 : 1,
+                  fontFamily: "inherit", textTransform: "capitalize",
+                  transition: "all 0.15s",
+                }}>
+                {saving === "scoring_mode" && !active ? "…" : mode}
+                {active && " ✓"}
+              </button>
+            );
+          })}
+        </div>
+        <div style={{ marginTop: 12, padding: "8px 12px", borderRadius: 8,
+          background: scoringMode === "batched" ? C.amberPale : C.greenPale,
+          border: "1px solid " + (scoringMode === "batched" ? "#FDE68A" : "#A7F3D0"),
+          fontSize: 12, color: scoringMode === "batched" ? C.amberDark : C.green, fontWeight: 600 }}>
+          {scoringMode === "batched"
+            ? "⚡ Batched mode active — single API call, lower token cost"
+            : "✓ Parallel mode active — one API call per scenario"}
+        </div>
+      </div>
     </div>
   );
 }
