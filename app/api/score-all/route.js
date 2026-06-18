@@ -122,6 +122,7 @@ function buildParticipantData(sharpResults) {
 }
 
 export async function POST(request) {
+  const tStart = Date.now()
   try {
     const { answers, email, name, instance_id, exercise_id, exerciseTitle, scenarios: clientScenarios } =
       await request.json()
@@ -136,6 +137,7 @@ export async function POST(request) {
     let scoringMode = "parallel" // default
     try {
       await initDb()
+      const tDb0 = Date.now()
       const [scenarioRows, algoRows, settingRows] = await Promise.all([
         exercise_id ? sql`
           SELECT s.short_title, s.prompt, s.context
@@ -157,7 +159,7 @@ export async function POST(request) {
       if (scenarioRows.length > 0) dbScenarios = scenarioRows
       if (algoRows.length > 0)     algorithm   = algoRows[0]
       if (settingRows[0]?.value)   scoringMode = settingRows[0].value
-      console.log(`[score-all] algorithm resolved: ${algorithm ? `"${algorithm.name}"` : "SHARP default"} | mode: ${scoringMode}`)
+      console.log(`[score-all] DB fetch: ${Date.now() - tDb0}ms | algo: ${algorithm ? `"${algorithm.name}"` : "SHARP default"} | mode: ${scoringMode}`)
     } catch (dbErr) {
       console.warn("[score-all] Could not fetch from DB, falling back to defaults:", dbErr?.message)
     }
@@ -202,6 +204,9 @@ export async function POST(request) {
 
     let sharpResults
 
+    const tScore0 = Date.now()
+    console.log(`[score-all] Scoring started — ${entries.length} scenario(s) | mode: ${scoringMode}`)
+
     if (scoringMode === "batched" && entries.length > 0) {
       // ── BATCHED: one API call for all scenarios ──────────────────────────────
       const contextsMap = Object.fromEntries(entries.map(([pos]) => [pos, buildContext(pos)]))
@@ -217,10 +222,13 @@ export async function POST(request) {
       }
     } else {
       // ── PARALLEL: one API call per scenario (default) ────────────────────────
-      const scoringPromises = entries.map(async ([pos, userResponse]) => {
+      // Small stagger (100ms apart) avoids simultaneous TCP connections hitting
+      // Azure's connection limit all at once, which causes "fetch failed" drops.
+      const scoringPromises = entries.map(async ([pos, userResponse], idx) => {
+        if (idx > 0) await new Promise(r => setTimeout(r, idx * 100))
         const context = buildContext(pos)
         try {
-          const result = await sharpEngine(userResponse, context, customBasePrompt, customOutputSchema)
+          const result = await sharpEngine(userResponse, context, customBasePrompt, customOutputSchema, `pos:${pos}`)
           return [pos, result]
         } catch (err) {
           console.error(`[score-all] scenario pos ${pos} failed:`, err?.status ?? "", err?.message)
@@ -231,28 +239,58 @@ export async function POST(request) {
       sharpResults = Object.fromEntries(results)
     }
 
-    // Synthesis phase — runs after per-scenario scoring if algorithm defines a synthesis_prompt
-    let synthesisResult = null
+    console.log(`[score-all] Scoring done: ${Date.now() - tScore0}ms`)
+
+    const exId = exercise_id ? parseInt(exercise_id) : null
+
+    // Synthesis — non-blocking: fires in background, does not delay the response
     const synthPrompt = algorithm?.synthesis_prompt?.trim() || null
     if (synthPrompt) {
-      try {
-        const synthSchema = algorithm?.synthesis_schema?.trim() || null
-        const participantData = buildParticipantData(sharpResults)
-        synthesisResult = await sharpEngine(participantData, {}, synthPrompt, synthSchema)
-      } catch (synthErr) {
-        console.error("[score-all] synthesis failed (non-fatal):", synthErr?.message)
-      }
+      const synthSchema     = algorithm?.synthesis_schema?.trim() || null
+      const tBuildData      = Date.now()
+      const participantData = buildParticipantData(sharpResults)
+      const tSynth0         = Date.now()
+      console.log(`[score-all] Synthesis (bg) | data built: ${tSynth0 - tBuildData}ms | prompt: ~${Math.round(synthPrompt.length / 4)} tokens est. | data: ~${Math.round(participantData.length / 4)} tokens est.`)
+
+      sharpEngine(participantData, {}, synthPrompt, synthSchema, "synthesis")
+        .then(async result => {
+          console.log(`[score-all] Synthesis bg done: ${Date.now() - tSynth0}ms`)
+          try {
+            await initDb()
+            if (instance_id && name) {
+              await sql`
+                UPDATE submissions SET synthesis_result = ${JSON.stringify(result)}
+                WHERE instance_id = ${parseInt(instance_id)}
+                AND LOWER(TRIM(name)) = LOWER(TRIM(${name}))
+              `
+            } else if (email && exId) {
+              await sql`
+                UPDATE submissions SET synthesis_result = ${JSON.stringify(result)}
+                WHERE email = ${email.toLowerCase().trim()} AND exercise_id = ${exId}
+              `
+            } else if (email) {
+              await sql`
+                UPDATE submissions SET synthesis_result = ${JSON.stringify(result)}
+                WHERE email = ${email.toLowerCase().trim()}
+              `
+            }
+            console.log(`[score-all] Synthesis bg DB save done`)
+          } catch (dbErr) {
+            console.error("[score-all] synthesis bg DB save failed:", dbErr?.message)
+          }
+        })
+        .catch(err => console.error("[score-all] synthesis bg failed:", err?.message))
     }
 
-    // Save results to DB (best-effort)
+    // Save scoring results to DB (best-effort) — synthesis_result saved separately in background
+    const tSave0 = Date.now()
     try {
       await initDb()
-      const exId = exercise_id ? parseInt(exercise_id) : null
       if (instance_id && name) {
         await sql`
           UPDATE submissions
           SET sharp_results    = ${JSON.stringify(sharpResults)},
-              synthesis_result = ${synthesisResult ? JSON.stringify(synthesisResult) : null}
+              synthesis_result = NULL
           WHERE instance_id = ${parseInt(instance_id)}
           AND LOWER(TRIM(name)) = LOWER(TRIM(${name}))
         `
@@ -260,24 +298,26 @@ export async function POST(request) {
         await sql`
           UPDATE submissions
           SET sharp_results    = ${JSON.stringify(sharpResults)},
-              synthesis_result = ${synthesisResult ? JSON.stringify(synthesisResult) : null}
+              synthesis_result = NULL
           WHERE email = ${email.toLowerCase().trim()} AND exercise_id = ${exId}
         `
       } else if (email) {
         await sql`
           UPDATE submissions
           SET sharp_results    = ${JSON.stringify(sharpResults)},
-              synthesis_result = ${synthesisResult ? JSON.stringify(synthesisResult) : null}
+              synthesis_result = NULL
           WHERE email = ${email.toLowerCase().trim()}
         `
       }
     } catch (dbErr) {
       console.error("[score-all] DB save failed (non-fatal):", dbErr?.message)
     }
+    console.log(`[score-all] DB save: ${Date.now() - tSave0}ms`)
+    console.log(`[score-all] ── TOTAL: ${Date.now() - tStart}ms (synthesis running in bg) ──`)
 
     return NextResponse.json({
       sharpResults,
-      synthesisResult,
+      synthesisResult: null,
       _algorithmUsed: algorithm ? { id: algorithm.name, name: algorithm.name, hasCustomPrompt: !!customBasePrompt, hasCustomSchema: !!customOutputSchema } : { name: "SHARP_DEFAULT", hasCustomPrompt: false, hasCustomSchema: false },
     })
   } catch (err) {

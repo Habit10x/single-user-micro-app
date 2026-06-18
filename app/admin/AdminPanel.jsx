@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 
 // ─── Design tokens (matches main app) ────────────────────────────────────────
@@ -57,6 +57,76 @@ const TextareaField = ({ label, value, onChange, rows = 3 }) => (
       style={{ ...inputStyle, resize: "vertical", lineHeight: 1.6 }} />
   </div>
 );
+
+const TOOLBAR_COLORS = ["#1C1C1C", "#6B1A1A", "#059669", "#D97706", "#2563EB", "#7C3AED", "#DC2626"];
+
+const RichTextEditor = ({ label, value, onChange, rows = 3 }) => {
+  const editorRef = useRef(null);
+  const [focused, setFocused] = useState(false);
+
+  useEffect(() => {
+    if (editorRef.current && editorRef.current.innerHTML !== (value || "")) {
+      editorRef.current.innerHTML = value || "";
+    }
+  // only sync on mount / external value reset
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const exec = (cmd, val = null) => {
+    editorRef.current?.focus();
+    document.execCommand(cmd, false, val);
+    onChange(editorRef.current?.innerHTML || "");
+  };
+
+  const ToolBtn = ({ cmd, val, children, style = {} }) => (
+    <button type="button"
+      onMouseDown={e => { e.preventDefault(); exec(cmd, val); }}
+      style={{ width: 28, height: 28, border: "1px solid " + C.border, borderRadius: 5,
+        background: C.card, cursor: "pointer", fontSize: 13, color: C.text,
+        display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+        ...style }}>
+      {children}
+    </button>
+  );
+
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <Label>{label}</Label>
+      <div style={{ border: "1.5px solid " + (focused ? C.crimson : C.border),
+        borderRadius: 7, overflow: "hidden", transition: "border-color 0.15s" }}>
+        {/* Toolbar */}
+        <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap",
+          padding: "6px 8px", borderBottom: "1px solid " + C.border, background: C.bg }}>
+          <ToolBtn cmd="bold"      style={{ fontWeight: 700 }}>B</ToolBtn>
+          <ToolBtn cmd="italic"    style={{ fontStyle: "italic" }}>I</ToolBtn>
+          <ToolBtn cmd="underline" style={{ textDecoration: "underline" }}>U</ToolBtn>
+          <div style={{ width: 1, height: 20, background: C.border, margin: "0 2px" }} />
+          {TOOLBAR_COLORS.map(color => (
+            <button key={color} type="button"
+              onMouseDown={e => { e.preventDefault(); exec("foreColor", color); }}
+              style={{ width: 20, height: 20, borderRadius: "50%", background: color,
+                border: "2px solid " + C.border, cursor: "pointer", flexShrink: 0 }} />
+          ))}
+          <div style={{ width: 1, height: 20, background: C.border, margin: "0 2px" }} />
+          <input type="color" title="Custom color"
+            onMouseDown={e => e.preventDefault()}
+            onChange={e => exec("foreColor", e.target.value)}
+            style={{ width: 28, height: 28, border: "1px solid " + C.border,
+              borderRadius: 5, cursor: "pointer", padding: 2, background: C.card }} />
+          <div style={{ width: 1, height: 20, background: C.border, margin: "0 2px" }} />
+          <ToolBtn cmd="removeFormat">✕</ToolBtn>
+        </div>
+        {/* Editable area */}
+        <div ref={editorRef} contentEditable suppressContentEditableWarning
+          onFocus={() => setFocused(true)}
+          onBlur={() => { setFocused(false); onChange(editorRef.current?.innerHTML || ""); }}
+          onInput={() => onChange(editorRef.current?.innerHTML || "")}
+          style={{ minHeight: rows * 26 + "px", padding: "9px 11px", fontSize: 13,
+            color: C.text, outline: "none", lineHeight: 1.6, fontFamily: "inherit" }} />
+      </div>
+    </div>
+  );
+};
 
 const SelectField = ({ label, value, onChange, options }) => (
   <div style={{ marginBottom: 14 }}>
@@ -341,7 +411,7 @@ function ScenariosTab() {
               <Field label="Full Title" value={form.full_title} onChange={f("full_title")} />
             </div>
 
-            <TextareaField label="Prompt (the question/situation)" value={form.prompt}
+            <RichTextEditor label="Prompt (the question/situation)" value={form.prompt}
               onChange={f("prompt")} rows={3} />
 
             <div style={{ marginBottom: 14 }}>
@@ -350,9 +420,8 @@ function ScenariosTab() {
                 onChange={f("context")} />
             </div>
 
-            <TextareaField label="Task Text (optional — shown under 'TASK' heading below context)"
-              value={form.task_text} onChange={f("task_text")}
-              rows={3} placeholder="Leave empty to hide the Task section…" />
+            <RichTextEditor label="Task Text (optional — shown under 'TASK' heading below context)"
+              value={form.task_text} onChange={f("task_text")} rows={3} />
 
             <div style={{ display: "grid", gridTemplateColumns: "140px 1fr", gap: 14 }}>
               <Field label="Score (1–10)" type="number" value={form.score}

@@ -287,8 +287,12 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
     if (submitting) return;
     const answers = textsRef.current;
     setSubmitting(true);
+    setUserAnswers(answers);
     try {
-      const submitRes  = await fetch("/api/submit", {
+      // Fire submit and score-all simultaneously.
+      // Submit's DB INSERT (~500ms) always completes long before score-all's DB save (~13s in),
+      // so the UPDATE in score-all will always find the row.
+      const submitPromise = fetch("/api/submit", {
         method:"POST", headers:{"Content-Type":"application/json"},
         body: JSON.stringify({
           email:       instanceId ? null : userEmail,
@@ -297,15 +301,9 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
           instance_id: instanceId || null,
           exercise_id: activeExercise.id || null,
         }),
-      });
-      const submitData = await submitRes.json();
-      setUserAnswers(answers);
-      if (instanceId) saveSession({ type: "instance", instanceId, instanceName, teamName: userName });
-      else if (userEmail) saveSession({ type: "email", email: userEmail });
-      if (instanceId) await fetchCommunityData({ instanceId });
-      else if (submitData.session_id) await fetchCommunityData({ sessionId: submitData.session_id });
-      else if (activeExercise.id) await fetchCommunityData({ exerciseId: activeExercise.id });
-      const scoreRes = await fetch("/api/score-all", {
+      }).then(r => r.json());
+
+      const scorePromise = fetch("/api/score-all", {
         method:"POST", headers:{"Content-Type":"application/json"},
         body: JSON.stringify({
           answers,
@@ -316,8 +314,19 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
           exerciseTitle: activeExercise.title,
           scenarios:     activeScenarios.map(s=>({shortTitle:s.short,text:s.text,ctx:s.ctx})),
         }),
-      });
-      const scoreData = await scoreRes.json();
+      }).then(r => r.json());
+
+      // After submit resolves: save session + fire community fetch (non-blocking)
+      submitPromise.then(submitData => {
+        if (instanceId) saveSession({ type: "instance", instanceId, instanceName, teamName: userName });
+        else if (userEmail) saveSession({ type: "email", email: userEmail });
+        if (instanceId) fetchCommunityData({ instanceId });
+        else if (submitData.session_id) fetchCommunityData({ sessionId: submitData.session_id });
+        else if (activeExercise.id) fetchCommunityData({ exerciseId: activeExercise.id });
+      }).catch(() => {});
+
+      // Wait only for score-all — this is the true bottleneck
+      const scoreData = await scorePromise;
       if (scoreData.sharpResults)    setSharpResults(scoreData.sharpResults);
       if (scoreData.synthesisResult) setSynthesisResult(scoreData.synthesisResult);
     } catch {}
@@ -341,6 +350,31 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
     const t = setTimeout(()=>setTimeLeft(s=>s-1), 1000);
     return ()=>clearTimeout(t);
   },[timeLeft, screen]);
+
+  // Synthesis polling: after results page loads, check DB every 3s until synthesis arrives
+  useEffect(()=>{
+    if (screen !== "results" || synthesisResult) return;
+    let cancelled = false;
+    let timer;
+    const poll = async (attempt = 0) => {
+      if (cancelled || attempt >= 6) return;
+      try {
+        const params = new URLSearchParams();
+        if (instanceId && userName)  { params.set("instance_id", String(instanceId)); params.set("name", userName); }
+        else if (userEmail)          { params.set("email", userEmail); if (activeExercise?.id) params.set("exercise_id", String(activeExercise.id)); }
+        else return;
+        const res  = await fetch(`/api/synthesis?${params}`);
+        const data = await res.json();
+        if (cancelled) return;
+        if (data.synthesis_result) { setSynthesisResult(data.synthesis_result); return; }
+      } catch {}
+      if (!cancelled) timer = setTimeout(() => poll(attempt + 1), 3000);
+    };
+    // Synthesis takes ~8s after results page appears — first check at 8s, then every 3s
+    timer = setTimeout(() => poll(0), 8000);
+    return () => { cancelled = true; clearTimeout(timer); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[screen]);
 
   const doLogout = () => {
     clearSession();
@@ -929,9 +963,8 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
               Scenario {q}
             </div>
             <p style={{fontSize:15, color:C.text, lineHeight:1.7,
-              margin:0, fontStyle:"italic", fontWeight:500, whiteSpace:"pre-wrap"}}>
-              {scenario.text}
-            </p>
+              margin:0, fontStyle:"italic", fontWeight:500}}
+              dangerouslySetInnerHTML={{__html: scenario.text}} />
           </div>
           <div style={{padding:"14px 18px", background:"#FDFCFB"}}>
             {scenario.ctx.filter(c => c.trim()).length > 0 && (
@@ -958,9 +991,8 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
                   Task
                 </div>
                 <p style={{fontSize:15, color:C.text, lineHeight:1.7,
-                  margin:0, fontStyle:"italic", fontWeight:500, whiteSpace:"pre-wrap"}}>
-                  {scenario.taskText}
-                </p>
+                  margin:0, fontStyle:"italic", fontWeight:500}}
+                  dangerouslySetInnerHTML={{__html: scenario.taskText}} />
               </>
             )}
           </div>
@@ -1308,7 +1340,13 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
               <div style={{fontSize:15, fontWeight:700, color:C.text}}>Community Responses</div>
               <div style={{fontSize:12, color:C.muted, marginTop:2}}>See how others answered</div>
             </div>
-            <span style={{fontSize:20, color:C.muted, flexShrink:0}}>›</span>
+            <span style={{display:"inline-flex", alignItems:"center", justifyContent:"center",
+              flexShrink:0, background:C.crimson, borderRadius:8, padding:"6px 14px"}}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+                stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="9 18 15 12 9 6"/>
+              </svg>
+            </span>
           </div>
 
         </div>
@@ -1447,39 +1485,67 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
             boxShadow:"0 20px 60px rgba(0,0,0,0.25)"}}>
 
           {/* ── Header ── */}
-          <div style={{padding:"17px 20px", borderBottom:"1px solid "+C.border,
-            display:"flex", alignItems:"center", justifyContent:"space-between",
-            position:"sticky", top:0, background:C.card, zIndex:10}}>
-            <div>
-              <div style={{fontSize:10, color:C.muted, letterSpacing:1.2,
-                textTransform:"uppercase", marginBottom:3}}>
-                Scenario {pos} · SHARP Feedback
-              </div>
-              <div style={{fontSize:16, fontWeight:700, color:C.text}}>{s?.full}</div>
-            </div>
-            <div style={{display:"flex", alignItems:"center", gap:8}}>
-              <div style={{textAlign:"right"}}>
-                <div style={{background:scoreBg(sc), color:scoreClr(sc),
-                  fontWeight:800, fontSize:16, padding:"4px 12px", borderRadius:20}}>
-                  {sc}/10
-                </div>
-                {sd && confidenceBadge && (
-                  <div style={{fontSize:9, fontWeight:700, textAlign:"center",
-                    marginTop:3, color:confidenceBadge.color,
-                    letterSpacing:0.8, textTransform:"uppercase"}}>
-                    {sd.scoreConfidence} confidence
-                  </div>
-                )}
-              </div>
+          {fbReturnScreen === "community" ? (
+            <div style={{padding:"20px 20px 16px", borderBottom:"1px solid "+C.border,
+              position:"sticky", top:0, background:C.card, zIndex:10, textAlign:"center"}}>
               <button onClick={()=>setScreen(fbReturnScreen)}
-                style={{background:C.borderLight, border:"none", color:C.muted,
-                  width:28, height:28, borderRadius:"50%", cursor:"pointer",
-                  fontSize:16, display:"flex", alignItems:"center", justifyContent:"center",
-                  flexShrink:0}}>
+                style={{position:"absolute", top:14, right:16, background:C.borderLight,
+                  border:"none", color:C.muted, width:28, height:28, borderRadius:"50%",
+                  cursor:"pointer", fontSize:16, display:"flex", alignItems:"center",
+                  justifyContent:"center"}}>
                 ✕
               </button>
+              <div style={{fontSize:10, color:C.muted, letterSpacing:1.4,
+                textTransform:"uppercase", marginBottom:10}}>
+                Scenario {pos}
+              </div>
+              <div style={{background:scoreBg(sc), color:scoreClr(sc),
+                fontWeight:800, fontSize:26, padding:"6px 24px", borderRadius:24,
+                display:"inline-block"}}>
+                {sc}/10
+              </div>
+              {sd && confidenceBadge && (
+                <div style={{fontSize:9, fontWeight:700, marginTop:6,
+                  color:confidenceBadge.color, letterSpacing:0.8, textTransform:"uppercase"}}>
+                  {sd.scoreConfidence} confidence
+                </div>
+              )}
             </div>
-          </div>
+          ) : (
+            <div style={{padding:"17px 20px", borderBottom:"1px solid "+C.border,
+              display:"flex", alignItems:"center", justifyContent:"space-between",
+              position:"sticky", top:0, background:C.card, zIndex:10}}>
+              <div>
+                <div style={{fontSize:10, color:C.muted, letterSpacing:1.2,
+                  textTransform:"uppercase", marginBottom:3}}>
+                  Scenario {pos} · SHARP Feedback
+                </div>
+                <div style={{fontSize:16, fontWeight:700, color:C.text}}>{s?.full}</div>
+              </div>
+              <div style={{display:"flex", alignItems:"center", gap:8}}>
+                <div style={{textAlign:"right"}}>
+                  <div style={{background:scoreBg(sc), color:scoreClr(sc),
+                    fontWeight:800, fontSize:16, padding:"4px 12px", borderRadius:20}}>
+                    {sc}/10
+                  </div>
+                  {sd && confidenceBadge && (
+                    <div style={{fontSize:9, fontWeight:700, textAlign:"center",
+                      marginTop:3, color:confidenceBadge.color,
+                      letterSpacing:0.8, textTransform:"uppercase"}}>
+                      {sd.scoreConfidence} confidence
+                    </div>
+                  )}
+                </div>
+                <button onClick={()=>setScreen(fbReturnScreen)}
+                  style={{background:C.borderLight, border:"none", color:C.muted,
+                    width:28, height:28, borderRadius:"50%", cursor:"pointer",
+                    fontSize:16, display:"flex", alignItems:"center", justifyContent:"center",
+                    flexShrink:0}}>
+                  ✕
+                </button>
+              </div>
+            </div>
+          )}
 
           <div style={{padding:"18px 20px 22px"}}>
 
@@ -1663,10 +1729,20 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
   // ═══════════════════════════════════════════════════════════════════════════
   const OtherFeedbackModal = () => {
     if (!otherFb) return null;
-    const { name, result, answer } = otherFb;
-    const impBg = lvl => lvl==="high" ? {bg:C.crimsonPale, border:C.crimsonBorder}
-                       : lvl==="medium" ? {bg:C.amberPale, border:"#FDE68A"}
-                       : {bg:C.tag, border:C.border};
+    const { name, result, answer, scenarioPos } = otherFb;
+
+    const impactStyle = (level) => {
+      if (level === "high")   return { bg: C.crimsonPale, border: C.crimsonBorder, lc: C.crimson };
+      if (level === "medium") return { bg: C.amberPale,   border: "#FDE68A",       lc: C.amberDark };
+      return                         { bg: C.tag,         border: C.border,        lc: C.muted };
+    };
+
+    const confidenceBadge = result ? ({
+      HIGH:   { color: C.green   },
+      MEDIUM: { color: C.amber   },
+      LOW:    { color: C.crimson },
+    }[result.scoreConfidence?.toUpperCase()] ?? null) : null;
+
     return (
       <div onClick={()=>setOtherFb(null)}
         style={{position:"fixed", inset:0, background:"rgba(0,0,0,0.4)",
@@ -1678,92 +1754,137 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
             boxShadow:"0 20px 60px rgba(0,0,0,0.25)"}}>
 
           {/* Header */}
-          <div style={{padding:"16px 20px", borderBottom:"1px solid "+C.border,
-            display:"flex", alignItems:"center", justifyContent:"space-between",
-            position:"sticky", top:0, background:C.card, zIndex:10}}>
-            <div>
-              <div style={{fontSize:10, color:C.muted, letterSpacing:1.2,
-                textTransform:"uppercase", marginBottom:3}}>Feedback</div>
-              <div style={{fontSize:15, fontWeight:700, color:C.text}}>{name}</div>
-            </div>
+          <div style={{padding:"20px 20px 16px", borderBottom:"1px solid "+C.border,
+            position:"sticky", top:0, background:C.card, zIndex:10, textAlign:"center"}}>
             <button onClick={()=>setOtherFb(null)}
-              style={{background:C.borderLight, border:"none", color:C.muted,
-                width:28, height:28, borderRadius:"50%", cursor:"pointer",
-                fontSize:16, display:"flex", alignItems:"center",
-                justifyContent:"center", flexShrink:0}}>
+              style={{position:"absolute", top:14, right:16, background:C.borderLight,
+                border:"none", color:C.muted, width:28, height:28, borderRadius:"50%",
+                cursor:"pointer", fontSize:16, display:"flex", alignItems:"center",
+                justifyContent:"center"}}>
               ✕
             </button>
+            <div style={{fontSize:10, color:C.muted, letterSpacing:1.4,
+              textTransform:"uppercase", marginBottom:6}}>
+              {scenarioPos ? `Scenario ${scenarioPos}` : "SHARP Feedback"}
+            </div>
+            <div style={{fontSize:13, fontWeight:600, color:C.textSoft, marginBottom:10}}>{name}</div>
+            {result && (
+              <>
+                <div style={{background:scoreBg(result.score), color:scoreClr(result.score),
+                  fontWeight:800, fontSize:26, padding:"6px 24px", borderRadius:24,
+                  display:"inline-block"}}>
+                  {result.score}/10
+                </div>
+                {confidenceBadge && (
+                  <div style={{fontSize:9, fontWeight:700, marginTop:6,
+                    color:confidenceBadge.color, letterSpacing:0.8, textTransform:"uppercase"}}>
+                    {result.scoreConfidence} confidence
+                  </div>
+                )}
+              </>
+            )}
           </div>
 
-          <div style={{padding:"20px"}}>
+          <div style={{padding:"18px 20px 22px"}}>
             {result ? (
               <>
-                {/* Score + one-liner */}
-                <div style={{textAlign:"center", marginBottom:18}}>
-                  <span style={{background:scoreBg(result.score), color:scoreClr(result.score),
-                    fontWeight:800, fontSize:22, padding:"6px 20px", borderRadius:30}}>
-                    {result.score}/10
-                  </span>
-                  {(result.summary ?? result.oneLiner) && (
-                    <p style={{fontSize:13, color:C.textSoft, margin:"12px 0 0",
-                      fontStyle:"italic", lineHeight:1.6}}>"{result.summary ?? result.oneLiner}"</p>
-                  )}
-                </div>
+                {/* Point First badge */}
+                {result.pointFirst !== undefined && (
+                  <div style={{marginBottom:16}}>
+                    <span style={{display:"inline-flex", alignItems:"center", gap:5,
+                      background:result.pointFirst?C.greenPale:C.crimsonPale,
+                      border:"1px solid "+(result.pointFirst?C.green:C.crimsonBorder),
+                      padding:"5px 13px", borderRadius:99,
+                      fontSize:12, fontWeight:600, color:result.pointFirst?C.green:C.crimson}}>
+                      {result.pointFirst?"✅ Led with the point":"❌ Key point buried"}
+                    </span>
+                  </div>
+                )}
 
-                {/* Their response */}
+                {/* Summary */}
+                {(result.summary ?? result.oneLiner) && (
+                  <div style={{background:"#1C1C1C", borderRadius:10,
+                    padding:"13px 16px", marginBottom:14}}>
+                    <div style={{fontSize:9, fontWeight:700, color:"#888",
+                      letterSpacing:1.5, textTransform:"uppercase", marginBottom:5}}>
+                      Summary
+                    </div>
+                    <div style={{fontSize:14, color:"#fff", lineHeight:1.6,
+                      fontWeight:600, fontStyle:"italic"}}>
+                      {result.summary ?? result.oneLiner}
+                    </div>
+                  </div>
+                )}
+
+                {/* Their Response */}
                 <div style={{background:C.bg, borderRadius:10, padding:"12px 14px",
-                  marginBottom:18, border:"1px solid "+C.border}}>
-                  <div style={{fontSize:10, fontWeight:700, color:C.muted,
+                  marginBottom:14, border:"1px solid "+C.border}}>
+                  <div style={{fontSize:9, fontWeight:700, color:C.muted,
                     letterSpacing:1.2, textTransform:"uppercase", marginBottom:7}}>
                     Their Response
                   </div>
                   <p style={{fontSize:13, color:C.text, lineHeight:1.65, margin:0}}>{answer}</p>
                 </div>
 
-                {/* What worked */}
+                {/* What Worked */}
                 {result.whatWorked?.length > 0 && (
-                  <div style={{marginBottom:18}}>
-                    <div style={{fontSize:11, fontWeight:700, color:C.green,
-                      letterSpacing:1.4, textTransform:"uppercase", marginBottom:10}}>
+                  <div style={{background:C.greenPale, borderRadius:10,
+                    padding:"13px 16px", marginBottom:14,
+                    border:"1px solid #A7F3D0"}}>
+                    <div style={{fontSize:9, fontWeight:700, color:C.greenDark,
+                      letterSpacing:1.5, textTransform:"uppercase", marginBottom:8}}>
                       What Worked
                     </div>
                     {result.whatWorked.map((w,i)=>(
-                      <div key={i} style={{display:"flex", gap:9,
-                        marginBottom:i<result.whatWorked.length-1?9:0,
-                        alignItems:"flex-start"}}>
-                        <span style={{width:6, height:6, borderRadius:"50%",
-                          background:C.green, flexShrink:0, marginTop:7}}/>
-                        <span style={{fontSize:13, color:C.text, lineHeight:1.65}}>{w}</span>
+                      <div key={i} style={{display:"flex", gap:8,
+                        marginBottom:i<result.whatWorked.length-1?7:0}}>
+                        <span style={{color:C.green, fontWeight:700, flexShrink:0, marginTop:1}}>✓</span>
+                        <span style={{fontSize:13, color:C.greenDark, lineHeight:1.6}}>{w}</span>
                       </div>
                     ))}
                   </div>
                 )}
 
-                {/* Impact cards */}
+                {/* Impact Cards */}
                 {result.impacts?.length > 0 && (
-                  <div style={{marginBottom:18}}>
-                    <div style={{fontSize:11, fontWeight:700, color:C.crimson,
-                      letterSpacing:1.4, textTransform:"uppercase", marginBottom:10}}>
+                  <>
+                    <div style={{fontSize:9, fontWeight:700, color:C.muted,
+                      letterSpacing:1.5, textTransform:"uppercase", marginBottom:9}}>
                       Where Impact Was Lost
                     </div>
                     {result.impacts.map((card,i)=>{
-                      const st = impBg(card.level);
+                      const is = impactStyle(card.level);
                       return (
-                        <div key={i} style={{background:st.bg, border:"1px solid "+st.border,
-                          borderRadius:10, padding:"12px 14px",
-                          marginBottom:i<result.impacts.length-1?10:0}}>
+                        <div key={i} style={{background:is.bg,
+                          border:"1px solid "+is.border,
+                          borderRadius:10, padding:"12px 15px", marginBottom:9}}>
+                          <div style={{display:"flex", alignItems:"center",
+                            gap:7, marginBottom:7}}>
+                            <span style={{fontSize:9, fontWeight:700, color:is.lc,
+                              letterSpacing:1.2, textTransform:"uppercase",
+                              border:"1px solid "+is.lc, borderRadius:4,
+                              padding:"1px 5px"}}>
+                              {card.level}
+                            </span>
+                          </div>
                           <p style={{fontSize:13, color:C.text, lineHeight:1.6,
-                            margin: card.why ? "0 0 6px" : 0}}>
+                            margin:"0 0 7px", fontWeight:500}}>
                             {card.observation}
                           </p>
-                          {card.why && (
-                            <p style={{fontSize:12, color:C.textSoft,
-                              lineHeight:1.55, margin:0}}>{card.why}</p>
+                          <p style={{fontSize:12, color:C.textSoft, lineHeight:1.55,
+                            margin:"0 0 "+(card.principle?"6px":"0")}}>
+                            {card.why}
+                          </p>
+                          {card.principle && (
+                            <p style={{fontSize:11, color:is.lc, fontStyle:"italic",
+                              margin:0, lineHeight:1.5, fontWeight:500}}>
+                              {card.principle}
+                            </p>
                           )}
                         </div>
                       );
                     })}
-                  </div>
+                  </>
                 )}
               </>
             ) : (
@@ -1776,7 +1897,7 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
             <button onClick={()=>setOtherFb(null)}
               style={{width:"100%", padding:"11px", background:C.crimson,
                 color:"#fff", border:"none", borderRadius:10,
-                fontSize:13, fontWeight:700, cursor:"pointer"}}>
+                fontSize:13, fontWeight:700, cursor:"pointer", marginTop:5}}>
               Close
             </button>
           </div>
@@ -1981,7 +2102,7 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
               </p>
               <div style={{display:"flex", justifyContent:"flex-end"}}>
                 <button
-                  onClick={()=>setOtherFb({ name: sub.name, result: subResult, answer: subAnswer })}
+                  onClick={()=>setOtherFb({ name: sub.name, result: subResult, answer: subAnswer, scenarioPos: commSc })}
                   style={{background:"none", border:"1px solid "+C.border,
                     color:C.text, fontSize:12, fontWeight:500,
                     padding:"5px 13px", borderRadius:8, cursor:"pointer",

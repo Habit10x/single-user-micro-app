@@ -24,7 +24,8 @@
       "PowerShell(Get-ChildItem -Path \"G:\\\\Internship Work\\\\Micro Apps\\\\Exercise-single user\\\\lib\" -Recurse | Where-Object {$_.Extension -match '\\\\.\\(js|jsx|ts|tsx|sql\\)$'} | Select-Object FullName)",
       "Bash(npx neon-query *)",
       "Bash(node -e ' *)",
-      "Bash(node *)"
+      "Bash(node *)",
+      "Bash(findstr dotenv *)"
     ]
   }
 }
