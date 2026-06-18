@@ -61,16 +61,17 @@ const TextareaField = ({ label, value, onChange, rows = 3 }) => (
 const TOOLBAR_COLORS = ["#1C1C1C", "#6B1A1A", "#059669", "#D97706", "#2563EB", "#7C3AED", "#DC2626"];
 
 const RichTextEditor = ({ label, value, onChange, rows = 3 }) => {
-  const editorRef = useRef(null);
+  const editorRef  = useRef(null);
+  const focusedRef = useRef(false);
   const [focused, setFocused] = useState(false);
 
+  // Sync editor content whenever value changes from outside (e.g. switching scenarios)
+  // Skip sync while the editor is focused to avoid resetting the cursor mid-type
   useEffect(() => {
-    if (editorRef.current && editorRef.current.innerHTML !== (value || "")) {
+    if (editorRef.current && !focusedRef.current) {
       editorRef.current.innerHTML = value || "";
     }
-  // only sync on mount / external value reset
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [value]);
 
   const exec = (cmd, val = null) => {
     editorRef.current?.focus();
@@ -118,8 +119,8 @@ const RichTextEditor = ({ label, value, onChange, rows = 3 }) => {
         </div>
         {/* Editable area */}
         <div ref={editorRef} contentEditable suppressContentEditableWarning
-          onFocus={() => setFocused(true)}
-          onBlur={() => { setFocused(false); onChange(editorRef.current?.innerHTML || ""); }}
+          onFocus={() => { setFocused(true); focusedRef.current = true; }}
+          onBlur={() => { setFocused(false); focusedRef.current = false; onChange(editorRef.current?.innerHTML || ""); }}
           onInput={() => onChange(editorRef.current?.innerHTML || "")}
           style={{ minHeight: rows * 26 + "px", padding: "9px 11px", fontSize: 13,
             color: C.text, outline: "none", lineHeight: 1.6, fontFamily: "inherit" }} />

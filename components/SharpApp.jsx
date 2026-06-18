@@ -89,8 +89,7 @@ const TopNav = ({userName, userEmail, onLogout, back}) => (
     justifyContent:"space-between", position:"sticky", top:0, zIndex:50,
     boxSizing:"border-box"}}>
     <div style={{display:"flex", alignItems:"center", gap:10}}>
-      <span style={{fontWeight:800, fontSize:17, color:C.crimson,
-        letterSpacing:0.5, fontFamily:"Georgia,serif"}}>SHARP</span>
+      <img src="/logo.png" alt="Speak Sharp" style={{height:32, display:"block"}} />
       {back && <>
         <span style={{color:C.borderLight}}>|</span>
         <button onClick={back.onClick}
@@ -1485,67 +1484,31 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
             boxShadow:"0 20px 60px rgba(0,0,0,0.25)"}}>
 
           {/* ── Header ── */}
-          {fbReturnScreen === "community" ? (
-            <div style={{padding:"20px 20px 16px", borderBottom:"1px solid "+C.border,
-              position:"sticky", top:0, background:C.card, zIndex:10, textAlign:"center"}}>
-              <button onClick={()=>setScreen(fbReturnScreen)}
-                style={{position:"absolute", top:14, right:16, background:C.borderLight,
-                  border:"none", color:C.muted, width:28, height:28, borderRadius:"50%",
-                  cursor:"pointer", fontSize:16, display:"flex", alignItems:"center",
-                  justifyContent:"center"}}>
-                ✕
-              </button>
-              <div style={{fontSize:10, color:C.muted, letterSpacing:1.4,
-                textTransform:"uppercase", marginBottom:10}}>
-                Scenario {pos}
-              </div>
-              <div style={{background:scoreBg(sc), color:scoreClr(sc),
-                fontWeight:800, fontSize:26, padding:"6px 24px", borderRadius:24,
-                display:"inline-block"}}>
-                {sc}/10
-              </div>
-              {sd && confidenceBadge && (
-                <div style={{fontSize:9, fontWeight:700, marginTop:6,
-                  color:confidenceBadge.color, letterSpacing:0.8, textTransform:"uppercase"}}>
-                  {sd.scoreConfidence} confidence
-                </div>
-              )}
+          <div style={{padding:"20px 20px 16px", borderBottom:"1px solid "+C.border,
+            position:"sticky", top:0, background:C.card, zIndex:10, textAlign:"center"}}>
+            <button onClick={()=>setScreen(fbReturnScreen)}
+              style={{position:"absolute", top:14, right:16, background:C.borderLight,
+                border:"none", color:C.muted, width:28, height:28, borderRadius:"50%",
+                cursor:"pointer", fontSize:16, display:"flex", alignItems:"center",
+                justifyContent:"center"}}>
+              ✕
+            </button>
+            <div style={{fontSize:10, color:C.muted, letterSpacing:1.4,
+              textTransform:"uppercase", marginBottom:10}}>
+              Scenario {pos}
             </div>
-          ) : (
-            <div style={{padding:"17px 20px", borderBottom:"1px solid "+C.border,
-              display:"flex", alignItems:"center", justifyContent:"space-between",
-              position:"sticky", top:0, background:C.card, zIndex:10}}>
-              <div>
-                <div style={{fontSize:10, color:C.muted, letterSpacing:1.2,
-                  textTransform:"uppercase", marginBottom:3}}>
-                  Scenario {pos} · SHARP Feedback
-                </div>
-                <div style={{fontSize:16, fontWeight:700, color:C.text}}>{s?.full}</div>
-              </div>
-              <div style={{display:"flex", alignItems:"center", gap:8}}>
-                <div style={{textAlign:"right"}}>
-                  <div style={{background:scoreBg(sc), color:scoreClr(sc),
-                    fontWeight:800, fontSize:16, padding:"4px 12px", borderRadius:20}}>
-                    {sc}/10
-                  </div>
-                  {sd && confidenceBadge && (
-                    <div style={{fontSize:9, fontWeight:700, textAlign:"center",
-                      marginTop:3, color:confidenceBadge.color,
-                      letterSpacing:0.8, textTransform:"uppercase"}}>
-                      {sd.scoreConfidence} confidence
-                    </div>
-                  )}
-                </div>
-                <button onClick={()=>setScreen(fbReturnScreen)}
-                  style={{background:C.borderLight, border:"none", color:C.muted,
-                    width:28, height:28, borderRadius:"50%", cursor:"pointer",
-                    fontSize:16, display:"flex", alignItems:"center", justifyContent:"center",
-                    flexShrink:0}}>
-                  ✕
-                </button>
-              </div>
+            <div style={{background:scoreBg(sc), color:scoreClr(sc),
+              fontWeight:800, fontSize:26, padding:"6px 24px", borderRadius:24,
+              display:"inline-block"}}>
+              {sc}/10
             </div>
-          )}
+            {sd && confidenceBadge && (
+              <div style={{fontSize:9, fontWeight:700, marginTop:6,
+                color:confidenceBadge.color, letterSpacing:0.8, textTransform:"uppercase"}}>
+                {sd.scoreConfidence} confidence
+              </div>
+            )}
+          </div>
 
           <div style={{padding:"18px 20px 22px"}}>
 
@@ -1967,9 +1930,8 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
                 Scenario {commSc}
               </div>
               <p style={{fontSize:15, color:C.text, lineHeight:1.7,
-                margin:0, fontStyle:"italic", fontWeight:500, whiteSpace:"pre-wrap"}}>
-                {commSc_obj.text}
-              </p>
+                margin:0, fontStyle:"italic", fontWeight:500}}
+                dangerouslySetInnerHTML={{__html: commSc_obj.text}} />
             </div>
             <div style={{padding:"14px 18px", background:"#FDFCFB"}}>
               {commSc_obj.ctx.filter(c => c.trim()).length > 0 && (
@@ -1996,9 +1958,8 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
                     Task
                   </div>
                   <p style={{fontSize:15, color:C.text, lineHeight:1.7,
-                    margin:0, fontStyle:"italic", fontWeight:500, whiteSpace:"pre-wrap"}}>
-                    {commSc_obj.taskText}
-                  </p>
+                    margin:0, fontStyle:"italic", fontWeight:500}}
+                    dangerouslySetInnerHTML={{__html: commSc_obj.taskText}} />
                 </>
               )}
             </div>
