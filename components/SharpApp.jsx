@@ -89,7 +89,7 @@ const TopNav = ({userName, userEmail, onLogout, back}) => (
     justifyContent:"space-between", position:"sticky", top:0, zIndex:50,
     boxSizing:"border-box"}}>
     <div style={{display:"flex", alignItems:"center", gap:10}}>
-      <img src="/logo.png" alt="Speak Sharp" style={{height:32, display:"block"}} />
+      <img src="/logo.png" alt="Speak Sharp" style={{height:120, display:"block"}} />
       {back && <>
         <span style={{color:C.borderLight}}>|</span>
         <button onClick={back.onClick}

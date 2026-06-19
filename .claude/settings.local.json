@@ -25,7 +25,8 @@
       "Bash(npx neon-query *)",
       "Bash(node -e ' *)",
       "Bash(node *)",
-      "Bash(findstr dotenv *)"
+      "Bash(findstr dotenv *)",
+      "PowerShell(Copy-Item *)"
     ]
   }
 }
