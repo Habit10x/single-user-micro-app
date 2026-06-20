@@ -26,7 +26,10 @@
       "Bash(node -e ' *)",
       "Bash(node *)",
       "Bash(findstr dotenv *)",
-      "PowerShell(Copy-Item *)"
+      "PowerShell(Copy-Item *)",
+      "Bash(Get-ChildItem \"G:\\\\Internship Work\\\\Micro Apps\\\\Exercise-single user\\\\app\" -Recurse -File)",
+      "Bash(Select-Object FullName)",
+      "Bash(Head -50)"
     ]
   }
 }

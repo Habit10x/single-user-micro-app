@@ -84,12 +84,12 @@ const Tag = ({icon, label, highlight}) => (
 
 // ─── Shared: Top nav ──────────────────────────────────────────────────────────
 const TopNav = ({userName, userEmail, onLogout, back}) => (
-  <header style={{background:C.card, borderBottom:"1px solid "+C.border,
+  <header className="top-nav-header" style={{background:C.card, borderBottom:"1px solid "+C.border,
     padding:"0 20px", height:52, display:"flex", alignItems:"center",
     justifyContent:"space-between", position:"sticky", top:0, zIndex:50,
     boxSizing:"border-box"}}>
     <div style={{display:"flex", alignItems:"center", gap:10}}>
-      <img src="/logo.png" alt="Speak Sharp" style={{height:100, display:"block"}} />
+      <img src="/logo.png" alt="Speak Sharp" className="top-nav-logo" />
       {back && <>
         <span style={{color:C.borderLight}}>|</span>
         <button onClick={back.onClick}
@@ -110,9 +110,9 @@ const TopNav = ({userName, userEmail, onLogout, back}) => (
         </div>
         <div>
           <div style={{fontSize:13, fontWeight:600, color:C.text, lineHeight:1.25}}>{userName}</div>
-          {userEmail && <div style={{fontSize:11, color:C.muted, lineHeight:1.25}}>{userEmail}</div>}
+          {userEmail && <div className="top-nav-user-email" style={{color:C.muted}}>{userEmail}</div>}
         </div>
-        <button onClick={onLogout}
+        <button onClick={onLogout} className="top-nav-logout"
           style={{background:"none", border:"1px solid "+C.border,
             color:C.muted, fontSize:12, fontWeight:600,
             padding:"5px 10px", borderRadius:7, cursor:"pointer",
@@ -374,6 +374,7 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
     return () => { cancelled = true; clearTimeout(timer); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[screen]);
+
 
   const doLogout = () => {
     clearSession();
@@ -1197,7 +1198,9 @@ export default function SharpApp({ exercise: exerciseProp, scenarios: scenariosP
                 flexShrink:0, fontSize:20}}>💬</div>
               <div style={{flex:1}}>
                 <div style={{fontSize:15, fontWeight:700, color:C.text}}>Your Feedback</div>
-                <div style={{fontSize:12, color:C.muted, marginTop:2}}>Your communication pattern</div>
+                <div style={{fontSize:12, color:C.muted, marginTop:2}}>
+                  {synthesisResult ? "Your communication pattern" : "Analyzing your responses…"}
+                </div>
               </div>
               <Chevron open={resultsFbOpen} />
             </div>

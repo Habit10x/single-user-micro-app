@@ -6,3 +6,32 @@ body {
   margin: 0;
   padding: 0;
 }
+
+.top-nav-logo {
+  height: 100px;
+  display: block;
+}
+
+.top-nav-user-email {
+  font-size: 11px;
+  line-height: 1.25;
+}
+
+@media (max-width: 600px) {
+  .top-nav-header {
+    padding-left: 8px !important;
+  }
+
+  .top-nav-logo {
+    height: 64px;
+  }
+
+  .top-nav-user-email {
+    display: none;
+  }
+
+  .top-nav-logout {
+    font-size: 11px !important;
+    padding: 4px 7px !important;
+  }
+}
